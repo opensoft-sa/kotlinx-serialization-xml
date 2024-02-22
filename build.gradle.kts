@@ -21,10 +21,7 @@ kotlin {
   explicitApi()
 
   jvm {
-    compilations.all {
-      kotlinOptions.jvmTarget = "1.8"
-    }
-    withJava()
+    jvmToolchain(8)
     testRuns["test"].executionTask.configure {
       useJUnitPlatform()
     }
@@ -35,42 +32,46 @@ kotlin {
 
   // Note: Keep native list in sync with kotlinx.serialization:
   // https://github.com/Kotlin/kotlinx.serialization/blob/master/gradle/native-targets.gradle
-  linuxX64()
-  linuxArm32Hfp()
-  linuxArm64()
+
+  // Tier 1
   macosX64()
   macosArm64()
-  mingwX86()
-  mingwX64()
-  iosX64()
-  iosArm32()
-  iosArm64()
   iosSimulatorArm64()
-  watchosX86()
+  iosX64()
+
+  // Tier 2
+  linuxX64()
+  linuxArm64()
+  watchosSimulatorArm64()
   watchosX64()
   watchosArm32()
   watchosArm64()
-  watchosSimulatorArm64()
+  tvosSimulatorArm64()
   tvosX64()
   tvosArm64()
-  tvosSimulatorArm64()
+  iosArm64()
+
+  // Tier 3
+  mingwX64()
+  androidNativeArm32()
+  androidNativeArm64()
+  androidNativeX86()
+  androidNativeX64()
+  watchosDeviceArm64()
+  linuxArm32Hfp()
 
   sourceSets {
-    val commonMain by getting {
-      dependencies {
-        api(libs.kotlinx.serialization)
+    all {
+      languageSettings {
+        optIn("kotlinx.serialization.ExperimentalSerializationApi")
       }
     }
-    val commonTest by getting {
-      dependencies {
-        implementation(kotlin("test"))
-      }
-    }
-  }
 
-  sourceSets.all {
-    languageSettings {
-      optIn("kotlinx.serialization.ExperimentalSerializationApi")
+    commonMain.dependencies {
+      api(libs.kotlinxSerialization.core)
+    }
+    commonTest.dependencies {
+      implementation(kotlin("test"))
     }
   }
 
