@@ -10,7 +10,7 @@ plugins {
   alias(libs.plugins.mavenPublish)
 }
 
-group = "com.ryanharter.kotlinx.serialization"
+group = "pt.opensoft.kotlinx.serialization"
 version = "0.0.1-SNAPSHOT"
 
 repositories {
@@ -96,8 +96,8 @@ mavenPublishing {
   publishToMavenCentral(DEFAULT)
   signAllPublications()
   pom {
-    description.set("A fully native, multiplatform XML format add-on for Kotlin Serialization.")
     name.set(project.name)
+    description.set("A fully native, multiplatform XML format add-on for Kotlin Serialization.")
     url.set("https://github.com/rharter/kotlinx-serialization-xml/")
     licenses {
       license {
