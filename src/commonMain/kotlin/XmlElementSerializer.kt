@@ -12,7 +12,7 @@ public object XmlElementSerializer : KSerializer<XmlElement> {
 
     override fun serialize(encoder: Encoder, value: XmlElement) {
         val xmlEncoder = encoder.asXmlEncoder()
-        val composite = xmlEncoder.beginStructure(value)
+        xmlEncoder.encodeXmlElement(value)
     }
 
     override fun deserialize(decoder: Decoder): XmlElement {

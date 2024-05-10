@@ -5,21 +5,18 @@ import kotlin.test.assertEquals
 import kotlin.test.fail
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 
 class XmlDecoderTest {
-    private val default = Xml.Default
-
     @Test
     fun basicXml() {
         val xml =
             """
-      <Greeting from="Ryan" to="Bill">
-        <message>Hi</message>
-      </Greeting>
-    """
+            <Greeting from="Ryan" to="Bill">
+                <message>Hi</message>
+            </Greeting>
+            """
                 .trimIndent()
-        val actual = default.decodeFromString<Greeting>(xml)
+        val actual = Xml.decodeFromString<Greeting>(xml)
         assertEquals(Greeting(from = "Ryan", to = "Bill", message = Message("Hi")), actual)
     }
 
@@ -27,12 +24,12 @@ class XmlDecoderTest {
     fun xmlWithNestedAttribute() {
         val xml =
             """
-      <Greeting from="Ryan" to="Bill">
-        <message content="Hi"/>
-      </Greeting>
-    """
+            <Greeting from="Ryan" to="Bill">
+                <message content="Hi"/>
+            </Greeting>
+            """
                 .trimIndent()
-        val actual = default.decodeFromString<Greeting>(xml)
+        val actual = Xml.decodeFromString<Greeting>(xml)
         assertEquals(Greeting(from = "Ryan", to = "Bill", message = Message("Hi")), actual)
     }
 
@@ -58,7 +55,7 @@ class XmlDecoderTest {
       </NamespacedGreetings>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<NamespacedGreetings>(xml)
+        val actual = Xml.decodeFromString<NamespacedGreetings>(xml)
         assertEquals(
             NamespacedGreetings(
                 MyGreeting("No namespaces here!"),
@@ -79,7 +76,7 @@ class XmlDecoderTest {
     """
                 .trimIndent()
         try {
-            default.decodeFromString<NamespacedGreetings>(xml)
+            Xml.decodeFromString<NamespacedGreetings>(xml)
             fail("Expected UndefinedNamespaceException.")
         } catch (e: UndefinedNamespaceException) {
             // success
@@ -114,7 +111,7 @@ class XmlDecoderTest {
         ns:onlyNamespaced="sixth" />
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Attributes>(xml)
+        val actual = Xml.decodeFromString<Attributes>(xml)
         assertEquals(
             Attributes(
                 "first",
@@ -142,7 +139,7 @@ class XmlDecoderTest {
         xmlns:ns="http://greetings.example.com/schema" />
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Attributes>(xml)
+        val actual = Xml.decodeFromString<Attributes>(xml)
         assertEquals(
             Attributes(
                 "first",
@@ -170,7 +167,7 @@ class XmlDecoderTest {
         xmlns:stream="http://etherx.jabber.org/streams"/>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Stream>(xml)
+        val actual = Xml.decodeFromString<Stream>(xml)
         assertEquals(Stream(from = "source@xmpp.org", to = "dest@xmpp.org"), actual)
     }
 
@@ -188,7 +185,7 @@ class XmlDecoderTest {
       </StreamHolder>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<StreamHolder>(xml)
+        val actual = Xml.decodeFromString<StreamHolder>(xml)
         assertEquals(StreamHolder(Stream(from = "source@xmpp.org", to = "dest@xmpp.org")), actual)
     }
 
@@ -203,7 +200,7 @@ class XmlDecoderTest {
       </Greeting>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Greeting>(xml)
+        val actual = Xml.decodeFromString<Greeting>(xml)
         assertEquals(Greeting(from = "Ryan", to = "Bill", message = Message("Hi")), actual)
     }
 
@@ -217,7 +214,7 @@ class XmlDecoderTest {
       </Greeting>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Greeting>(xml)
+        val actual = Xml.decodeFromString<Greeting>(xml)
         assertEquals(Greeting(from = "Ryan", to = "Bill", message = Message("Hi")), actual)
     }
 
@@ -233,7 +230,7 @@ class XmlDecoderTest {
       <data><required/></data>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Data>(xml)
+        val actual = Xml.decodeFromString<Data>(xml)
         assertEquals(Data(true), actual)
     }
 
@@ -250,7 +247,7 @@ class XmlDecoderTest {
       <date required snakeCount="4"/>
     """
                 .trimIndent()
-        val actual = default.decodeFromString<Data>(xml)
+        val actual = Xml.decodeFromString<Data>(xml)
         assertEquals(Data(true), actual)
     }
 }

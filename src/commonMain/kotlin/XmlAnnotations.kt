@@ -19,7 +19,7 @@ import kotlinx.serialization.SerialInfo
  */
 @SerialInfo
 @Repeatable
-@Target(AnnotationTarget.PROPERTY, AnnotationTarget.CLASS)
+@Target(AnnotationTarget.CLASS)
 public annotation class DeclaresXmlNamespace(
     /** Namespace name, identified by a URI. */
     public val uri: String,
@@ -39,8 +39,17 @@ public annotation class DeclaresXmlNamespace(
  * Cannot be used together with [XmlText].
  */
 @SerialInfo
-@Target(AnnotationTarget.PROPERTY, AnnotationTarget.CLASS, AnnotationTarget.TYPE)
+@Target(AnnotationTarget.CLASS, AnnotationTarget.PROPERTY)
 public annotation class XmlName(public val value: String)
+
+/**
+ * Annotation used to specify the name of an XML element representing the item of a list or map.
+ *
+ * Use together with [XmlItemNamespace] to fully qualify the item's name.
+ */
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+public annotation class XmlItemName(public val value: String)
 
 /**
  * Annotation used to specify the namespace of an element or attribute.
@@ -61,8 +70,26 @@ public annotation class XmlName(public val value: String)
  * This annotation cannot be used together with [XmlText].
  */
 @SerialInfo
-@Target(AnnotationTarget.PROPERTY, AnnotationTarget.CLASS, AnnotationTarget.TYPE)
+@Target(AnnotationTarget.CLASS, AnnotationTarget.PROPERTY)
 public annotation class XmlNamespace(
+    /** Namespace name, identified by a URI. */
+    public val uri: String,
+    /**
+     * Optional preferred namespace prefix used when auto-generating a namespace declaration. This
+     * value will be ignored when the namespace is already in scope.
+     */
+    public val preferredPrefix: String = ""
+)
+
+/**
+ * Annotation used to specify the namespace of an XML element representing the item of a list or
+ * map.
+ *
+ * Use together with [XmlItemName] to fully qualify the item's name.
+ */
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+public annotation class XmlItemNamespace(
     /** Namespace name, identified by a URI. */
     public val uri: String,
     /**
@@ -78,6 +105,12 @@ public annotation class XmlNamespace(
 /**
  * A property annotated with [XmlText] will be serialized as the text content of an element.
  *
- * There can only exist a single [XmlText] property per class.
+ * There can only exist a single property annotated with [XmlText] per class.
  */
 @SerialInfo @Target(AnnotationTarget.PROPERTY) public annotation class XmlText
+
+/**
+ * Annotation used to specify that a structured property should be wrapped in an element, when
+ * [wrapStructuredProperties][XmlBuilder.wrapStructuredProperties] is set to `false` (the default).
+ */
+@SerialInfo @Target(AnnotationTarget.PROPERTY) public annotation class XmlWrap

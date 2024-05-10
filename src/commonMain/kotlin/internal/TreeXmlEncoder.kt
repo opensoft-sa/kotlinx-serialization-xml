@@ -17,7 +17,7 @@ public fun <T> writeXml(xml: Xml, value: T, serializer: SerializationStrategy<T>
 private class XmlTreeEncoder(
     override val xml: Xml,
     /** Namespaces in scope by prefix. */
-    private val namespaces: Map<String, String> = INITIAL_NAMESPACES_IN_SCOPE,
+    private val namespaces: Map<String, String> = GLOBAL_NAMESPACES,
     private val parentElement: XmlElement? = null,
     private val nodeConsumer: (XmlElement) -> Unit
 ) : XmlEncoder {
@@ -27,7 +27,7 @@ private class XmlTreeEncoder(
     private val configuration = xml.configuration
 
     private fun addAttributeToParent(attribute: XmlElement.Attribute) {
-        parentElement!!.attributes as MutableList += attribute
+        parentElement!!.attributes as MutableSet += attribute
     }
 
     private fun addContentToParent(content: XmlContent) {
@@ -42,20 +42,32 @@ private class XmlTreeEncoder(
         configuration.encodeDefaults
 
     override fun beginStructure(descriptor: SerialDescriptor): CompositeEncoder {
+        descriptor.validateXmlAnnotations()
+        descriptor.validateElementXmlAnnotations()
+
         val namespacesInScope = namespaces.toMutableMap()
-        val attributes: MutableList<XmlElement.Attribute> = mutableListOf()
+        val attributes: MutableSet<XmlElement.Attribute> = mutableSetOf()
         val addAttribute: (XmlElement.Attribute) -> Unit = { attributes += it }
 
         // Declare specified namespaces
-        declareSpecifiedNamespaces(descriptor, namespacesInScope, addAttribute)
+        declareSpecifiedNamespaces(
+            descriptor.getXmlNamespaceDeclarations(),
+            namespacesInScope,
+            addAttribute
+        )
 
-        // Obtain namespace of the element and declare it needed
-        val namespace = getAndDeclareElementNamespace(descriptor, namespacesInScope, addAttribute)
+        // Obtain namespace of the element and declare it if not already in scope
+        val namespace =
+            getAndDeclareElementNamespace(
+                descriptor.getXmlNamespace(),
+                namespacesInScope,
+                addAttribute
+            )
 
         // Declare children namespaces not in scope
         declareChildrenNamespaces(descriptor, namespacesInScope, addAttribute)
 
-        val element = XmlElement(descriptor.getXmlName(), namespace, attributes, mutableListOf())
+        val element = XmlElement(descriptor.getXmlSerialName(), namespace, attributes, mutableListOf())
         return XmlTreeEncoder(xml, namespacesInScope, element, nodeConsumer)
     }
 
@@ -64,36 +76,15 @@ private class XmlTreeEncoder(
     }
 
     private fun encodeElement(descriptor: SerialDescriptor, index: Int, value: String) {
-        val annotations = descriptor.getElementAnnotations(index)
-        val isAttribute = annotations.filterIsInstance<XmlAttribute>().isNotEmpty()
-        val isText = annotations.filterIsInstance<XmlText>().isNotEmpty()
-        val hasNamespaceDeclaration =
-            annotations.filterIsInstance<DeclaresXmlNamespace>().isNotEmpty()
+        val isAttribute = descriptor.isElementXmlAttribute(index)
+        val isText = descriptor.isElementXmlText(index)
 
-        if (isAttribute && isText) {
-            throw XmlSerializationException(
-                "Properties cannot have both @XmlAttribute and @XmlText annotations"
-            )
-        }
-        if (isAttribute && hasNamespaceDeclaration) {
-            throw XmlSerializationException(
-                "Properties cannot have both @XmlAttribute and @XmlNamespaceDeclaration annotations"
-            )
-        }
-        if (isText && hasNamespaceDeclaration) {
-            throw XmlSerializationException(
-                "Properties cannot have both @XmlText and @XmlNamespaceDeclaration annotations"
-            )
-        }
-
-        val name = descriptor.getElementXmlName(index)
+        val name = descriptor.getElementXmlSerialName(index)
         if (isAttribute) {
             // If a namespace was specified, it must be in scope, since the parent element makes
             // sure that all children namespaces have been declared; otherwise, by default,
             // attributes have no namespace
-            val namespace =
-                annotations.filterIsInstance<XmlNamespace>().firstOrNull()?.uri
-                    ?: EMPTY_NAMESPACE_URI
+            val namespace = descriptor.getElementXmlNamespace(index)?.uri ?: NO_NAMESPACE_URI
             addAttributeToParent(XmlElement.Attribute(name, namespace, value))
             return
         }
@@ -103,12 +94,12 @@ private class XmlTreeEncoder(
         }
 
         val namespacesInScope = namespaces.toMutableMap()
-        val attributes: MutableList<XmlElement.Attribute> = mutableListOf()
+        val attributes: MutableSet<XmlElement.Attribute> = mutableSetOf()
         val addAttribute: (XmlElement.Attribute) -> Unit = { attributes += it }
 
         // Declare specified namespaces
         declareSpecifiedNamespaces(
-            descriptor.getElementDescriptor(index),
+            descriptor.getElementDescriptor(index).getXmlNamespaceDeclarations(),
             namespacesInScope,
             addAttribute
         )
@@ -116,7 +107,7 @@ private class XmlTreeEncoder(
         // Obtain namespace of the element and declare it if not already in scope
         val namespace =
             getAndDeclareElementNamespace(
-                descriptor.getElementDescriptor(index),
+                descriptor.getElementDescriptor(index).getXmlNamespace(),
                 namespacesInScope,
                 addAttribute
             )

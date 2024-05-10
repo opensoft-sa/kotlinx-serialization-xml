@@ -1,23 +1,23 @@
 package pt.opensoft.kotlinx.serialization.xml.internal
 
 import kotlinx.serialization.descriptors.SerialDescriptor
-import pt.opensoft.kotlinx.serialization.xml.DeclaresXmlNamespace
-import pt.opensoft.kotlinx.serialization.xml.XmlElement
-import pt.opensoft.kotlinx.serialization.xml.XmlNamespace
+import pt.opensoft.kotlinx.serialization.xml.*
 
-/** URI of the empty (no) namespace. */
-internal const val EMPTY_NAMESPACE_URI = ""
-/** Prefix of the default namespace. */
-internal const val DEFAULT_NAMESPACE_PREFIX = ""
 /** Default prefix used when creating a new namespace prefix. */
 internal const val AUTO_NAMESPACE_PREFIX = "ns"
 
 /** Initial namespaces in scope. */
-internal val INITIAL_NAMESPACES_IN_SCOPE = mapOf(DEFAULT_NAMESPACE_PREFIX to EMPTY_NAMESPACE_URI)
+internal val GLOBAL_NAMESPACES: Map<String, String> =
+    mapOf(
+        NO_NAMESPACE_PREFIX to NO_NAMESPACE_URI,
+        XML_NAMESPACE_PREFIX to XML_NAMESPACE_URI,
+        XMLNS_NAMESPACE_PREFIX to XMLNS_NAMESPACE_URI
+    )
 
-/** Attribute name for a namespace declaration with the provided [prefix]. */
-private fun namespaceDeclarationAttributeName(prefix: String) =
-    if (prefix.isEmpty()) "xmlns" else "xmlns:${prefix}"
+/** Attribute name for a namespace declaration with the provided [prefixName]. */
+private fun namespaceDeclarationAttribute(prefixName: String, uri: String): XmlElement.Attribute =
+    if (prefixName.isEmpty()) XmlElement.Attribute(XMLNS_NAMESPACE_PREFIX, uri)
+    else XmlElement.Attribute(prefixName, XMLNS_NAMESPACE_URI, uri)
 
 /** Generates a new non-empty namespace prefix different from the ones in scope. */
 private fun newNamespacePrefix(namespaces: Map<String, String>, preferredPrefix: String): String {
@@ -31,23 +31,17 @@ private fun newNamespacePrefix(namespaces: Map<String, String>, preferredPrefix:
 
 /** Declares the namespace declarations specified via [DeclaresXmlNamespace]. */
 internal fun declareSpecifiedNamespaces(
-    descriptor: SerialDescriptor,
+    namespaceDeclarationAnnotations: List<DeclaresXmlNamespace>,
     namespaces: MutableMap<String, String>,
     addAttribute: (XmlElement.Attribute) -> Unit,
 ) {
-    val namespaceDeclarationAnnotations = descriptor.getXmlNamespaceDeclarations()
     for (declaration in namespaceDeclarationAnnotations) {
         // If the namespace is already in scope with the same prefix, then we don't need to
         // redeclare it, otherwise we always declare the namespace, even if just to change the
         // prefix (which may mean declaring a new default namespace)
         if (namespaces[declaration.prefix] != declaration.uri) {
-            addAttribute(
-                XmlElement.Attribute(
-                    namespaceDeclarationAttributeName(declaration.prefix),
-                    declaration.uri
-                )
-            )
             namespaces[declaration.prefix] = declaration.uri
+            addAttribute(namespaceDeclarationAttribute(declaration.prefix, declaration.uri))
         }
     }
 }
@@ -57,33 +51,39 @@ internal fun declareSpecifiedNamespaces(
  * generating a new prefix and adding the new declaration to the namespaces in scope, as well as to
  * the element attributes.
  */
-private fun declareNamespaceIfNotInScope(
+private fun declareNamespaceIfNeeded(
     namespaceAnnotation: XmlNamespace,
+    isAttribute: Boolean,
     namespaces: MutableMap<String, String>,
     addAttribute: (XmlElement.Attribute) -> Unit
 ) {
-    if (namespaceAnnotation.uri !in namespaces.values) {
+    val prefixes = namespaces.filterValues { it == namespaceAnnotation.uri }.keys
+    if (
+        prefixes.isEmpty() ||
+            // When declaring the namespace of an attribute, we must redeclare it with a prefix if
+            // it was only available under the default prefix, since unprefixed attributes belong to
+            // no namespace rather than to the default one
+            (isAttribute && prefixes.size == 1 && NO_NAMESPACE_PREFIX in prefixes)
+    ) {
         val prefix = newNamespacePrefix(namespaces, namespaceAnnotation.preferredPrefix)
-        addAttribute(
-            XmlElement.Attribute(namespaceDeclarationAttributeName(prefix), namespaceAnnotation.uri)
-        )
         namespaces[prefix] = namespaceAnnotation.uri
+        addAttribute(namespaceDeclarationAttribute(prefix, namespaceAnnotation.uri))
     }
 }
 
 /** Gets the namespace of an element, assuming that it is already in scope. */
 internal fun getElementNamespace(
-    descriptor: SerialDescriptor,
+    namespaceAnnotation: XmlNamespace?,
     namespaces: Map<String, String>
 ): String =
-    descriptor.getXmlNamespace()?.uri
-        ?: (namespaces[DEFAULT_NAMESPACE_PREFIX] ?: error("Empty namespace not in scope"))
+    namespaceAnnotation?.uri
+        ?: (namespaces[NO_NAMESPACE_PREFIX] ?: error("Empty namespace not in scope"))
 
 /** Obtains the prefix associated with a given element's namespace. */
 internal fun getElementNamespacePrefix(namespace: String, namespaces: Map<String, String>): String {
     // Always prefer the default namespace
-    if (namespaces[DEFAULT_NAMESPACE_PREFIX] == namespace) {
-        return DEFAULT_NAMESPACE_PREFIX
+    if (namespaces[NO_NAMESPACE_PREFIX] == namespace) {
+        return NO_NAMESPACE_PREFIX
     }
     // Otherwise, use the prefix that was last defined
     return namespaces.entries.lastOrNull { (_, v) -> namespace == v }?.key
@@ -96,8 +96,8 @@ internal fun getAttributeNamespacePrefix(
     namespaces: Map<String, String>
 ): String {
     // Attributes without a prefix always use the default namespace
-    if (namespace == EMPTY_NAMESPACE_URI) {
-        return DEFAULT_NAMESPACE_PREFIX
+    if (namespace == NO_NAMESPACE_URI) {
+        return NO_NAMESPACE_PREFIX
     }
     // Otherwise, use the prefix that was last defined, but isn't the empty one
     return namespaces.entries
@@ -108,14 +108,13 @@ internal fun getAttributeNamespacePrefix(
 
 /** Gets the namespace of an element, and declares it within the element if not already in scope. */
 internal fun getAndDeclareElementNamespace(
-    descriptor: SerialDescriptor,
+    namespaceAnnotation: XmlNamespace?,
     namespaces: MutableMap<String, String>,
     addAttribute: (XmlElement.Attribute) -> Unit
 ): String {
-    val namespaceAnnotation = descriptor.annotations.filterIsInstance<XmlNamespace>().firstOrNull()
     return namespaceAnnotation?.uri?.also {
-        declareNamespaceIfNotInScope(namespaceAnnotation, namespaces, addAttribute)
-    } ?: (namespaces[DEFAULT_NAMESPACE_PREFIX] ?: error("Empty namespace not in scope"))
+        declareNamespaceIfNeeded(namespaceAnnotation, false, namespaces, addAttribute)
+    } ?: (namespaces[NO_NAMESPACE_PREFIX] ?: error("Empty namespace not in scope"))
 }
 
 /**
@@ -127,18 +126,15 @@ internal fun declareChildrenNamespaces(
     namespaces: MutableMap<String, String>,
     addAttribute: (XmlElement.Attribute) -> Unit
 ) {
-    val childrenNamespaceAnnotations =
-        (0 until descriptor.elementsCount).mapNotNull { i ->
-            val namespaceDeclarations = descriptor.getElementXmlNamespaceDeclarations(i)
-            val childNamespaceAnnotation = descriptor.getElementXmlNamespace(i)
-            if (
-                childNamespaceAnnotation != null &&
-                    namespaceDeclarations.none { it.uri == childNamespaceAnnotation.uri }
+    for (i in 0 until descriptor.elementsCount) {
+        val childNamespaceAnnotation = descriptor.getElementXmlNamespace(i)
+        if (childNamespaceAnnotation != null) {
+            declareNamespaceIfNeeded(
+                childNamespaceAnnotation,
+                descriptor.isElementXmlAttribute(i),
+                namespaces,
+                addAttribute
             )
-                childNamespaceAnnotation
-            else null
         }
-    for (childNamespaceAnnotation in childrenNamespaceAnnotations) {
-        declareNamespaceIfNotInScope(childNamespaceAnnotation, namespaces, addAttribute)
     }
 }

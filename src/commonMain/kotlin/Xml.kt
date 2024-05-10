@@ -145,6 +145,58 @@ public class XmlBuilder internal constructor(xml: Xml) {
     /** Specifies indent string to use with [prettyPrint] mode. 4 spaces by default. */
     public var prettyPrintIndent: String = xml.configuration.prettyPrintIndent
 
+    /**
+     * Defines the type of encoding to use for booleans. Defaults to [BooleanEncoding.NUMERIC] when
+     * [prettyPrint] is `false`, and [BooleanEncoding.TEXTUAL] otherwise.
+     *
+     * Note that both textual (`true`/`false`) and numeric (`1`/`0`) representations are valid
+     * `xsd:boolean` representations and, as such, this setting does not affect decoding.
+     */
+    public var booleanEncoding: BooleanEncoding? = null
+
+    /**
+     * Enables structured objects to be serialized as map keys by changing the serialized form of
+     * the map from a list of values with key attributes like `<v1 key=k1/><v2 key=k2/>` to a flat
+     * list of elements like `<k1/><v1/><k2/><v2/>`. `false` by default.
+     *
+     * **NOTE**: Not yet implemented.
+     */
+    public var allowStructuredMapKeys: Boolean = xml.configuration.allowStructuredMapKeys
+
+    /**
+     * Specifies the default name of the key attribute for map key serialization. `"key"` by
+     * default.
+     *
+     * **NOTE**: Map serialisation is not yet implemented.
+     */
+    public var mapKeyAttributeName: String = xml.configuration.mapKeyAttributeName
+
+    /**
+     * Specifies the default namespace of the key attribute for map key serialization. No namespace
+     * by default.
+     *
+     * **NOTE**: Map serialisation is not yet implemented.
+     */
+    public var mapKeyAttributeNamespace: String = xml.configuration.mapKeyAttributeNamespace
+
+    /**
+     * Specifies the default name of the class descriptor attribute for polymorphic serialization.
+     * `"type"` by default.
+     *
+     * **NOTE**: Polymorphic serialisation is not yet implemented.
+     */
+    public var classDiscriminatorAttributeName: String =
+        xml.configuration.classDiscriminatorAttributeName
+
+    /**
+     * Specifies the default namespace of the class descriptor attribute for polymorphic
+     * serialization. No namespace by default.
+     *
+     * **NOTE**: Polymorphic serialisation is not yet implemented.
+     */
+    public var classDiscriminatorAttributeNamespace: String =
+        xml.configuration.classDiscriminatorAttributeNamespace
+
     internal fun build(): XmlConfiguration {
         if (!prettyPrint) {
             require(prettyPrintIndent == DEFAULT_PRETTY_PRINT_INDENT) {
@@ -163,6 +215,13 @@ public class XmlBuilder internal constructor(xml: Xml) {
             encodeDefaults,
             prettyPrint,
             prettyPrintIndent,
+            booleanEncoding
+                ?: if (prettyPrint) BooleanEncoding.TEXTUAL else BooleanEncoding.NUMERIC,
+            allowStructuredMapKeys,
+            mapKeyAttributeName,
+            mapKeyAttributeNamespace,
+            classDiscriminatorAttributeName,
+            classDiscriminatorAttributeNamespace,
         )
     }
 }
