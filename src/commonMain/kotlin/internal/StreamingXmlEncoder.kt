@@ -17,7 +17,8 @@ internal class StreamingXmlEncoder(
     private val elementDescriptor: SerialDescriptor? = null,
     private val elementIndex: Int = -1,
     private val attributePrefix: String? = null,
-    private val attributeName: String? = null
+    private val attributeName: String? = null,
+    private val flattenStructure: Boolean = false,
 ) : XmlEncoder {
     override val serializersModule: SerializersModule
         get() = xml.serializersModule
@@ -29,7 +30,8 @@ internal class StreamingXmlEncoder(
         elementDescriptor: SerialDescriptor,
         elementIndex: Int,
         attributePrefix: String? = null,
-        attributeName: String? = null
+        attributeName: String? = null,
+        flattenStructure: Boolean = false
     ) =
         StreamingXmlEncoder(
             xml,
@@ -39,10 +41,21 @@ internal class StreamingXmlEncoder(
             elementDescriptor,
             elementIndex,
             attributePrefix,
-            attributeName
+            attributeName,
+            flattenStructure
         )
 
-    //    private fun childEncoder() = StreamingXmlEncoder()
+    private fun contentEncoder(
+        namespaces: Map<String, String> = this.namespaces,
+        flattenStructure: Boolean = false
+    ) =
+        StreamingXmlEncoder(
+            xml,
+            Composer(composer),
+            namespaces,
+            this,
+            flattenStructure = flattenStructure
+        )
 
     override fun encodeXmlElement(element: XmlElement) {
         encodeSerializableValue(XmlElementSerializer, element)
@@ -52,12 +65,15 @@ internal class StreamingXmlEncoder(
         configuration.encodeDefaults
 
     override fun beginStructure(descriptor: SerialDescriptor): StreamingXmlEncoder {
-        println("${elementDescriptor?.kind} ${descriptor.kind}")
-        if (
-            elementDescriptor != null &&
-                (descriptor.kind == StructureKind.LIST || descriptor.kind == StructureKind.MAP)
-        ) {
-            return this
+        if (flattenStructure) {
+            return StreamingXmlEncoder(
+                xml,
+                composer,
+                namespaces,
+                this,
+                elementDescriptor,
+                elementIndex
+            )
         }
 
         descriptor.validateXmlAnnotations()
@@ -98,27 +114,22 @@ internal class StreamingXmlEncoder(
             )
             .appendComposer(attributesComposer)
 
-        return StreamingXmlEncoder(xml, Composer(composer), namespacesInScope, this)
+        return contentEncoder(namespacesInScope)
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
-        if (
-            elementDescriptor != null &&
-                (descriptor.kind == StructureKind.LIST || descriptor.kind == StructureKind.MAP)
-        ) {
+        if (parentEncoder!!.flattenStructure) {
             return
         }
 
         if (composer.isEmpty()) {
-            parentEncoder!!.composer.selfEndElement()
+            parentEncoder.composer.selfEndElement()
             return
         }
 
         val namespace =
             getElementNamespace(
-                parentEncoder!!
-                    .elementDescriptor
-                    ?.getElementXmlNamespace(parentEncoder.elementIndex)
+                parentEncoder.elementDescriptor?.getElementXmlNamespace(parentEncoder.elementIndex)
                     ?: descriptor.getXmlNamespace(),
                 namespaces
             )
@@ -132,6 +143,45 @@ internal class StreamingXmlEncoder(
                 parentEncoder.elementDescriptor?.getElementXmlSerialName(parentEncoder.elementIndex)
                     ?: descriptor.getXmlSerialName()
             )
+    }
+
+    private fun encodeElement(
+        descriptor: SerialDescriptor,
+        index: Int,
+        encodeValue: (encoder: StreamingXmlEncoder) -> Unit
+    ) {
+        // Encoding a list or map item
+        if (descriptor.kind == StructureKind.LIST || descriptor.kind == StructureKind.MAP) {
+            encodeValue(this)
+            return
+        }
+
+        val elementKind = descriptor.getElementDescriptor(index).kind
+        val isCollection = elementKind == StructureKind.LIST || elementKind == StructureKind.MAP
+
+        // Wrap element
+        if (descriptor.isElementXmlWrap(index)) {
+            val namespace =
+                getElementNamespace(descriptor.getElementXmlNamespace(index), namespaces)
+            val prefix = getElementNamespacePrefix(namespace, namespaces)
+            val name = descriptor.getElementXmlSerialName(index)
+
+            val contentEncoder = contentEncoder(flattenStructure = isCollection)
+            encodeValue(contentEncoder)
+
+            composer.startElement(prefix, name)
+            if (contentEncoder.composer.isEmpty()) {
+                composer.selfEndElement()
+            } else {
+                composer
+                    .endElementStart()
+                    .appendComposer(contentEncoder.composer)
+                    .endElement(prefix, name)
+            }
+            return
+        } else {
+            encodeValue(elementEncoder(descriptor, index, flattenStructure = isCollection))
+        }
     }
 
     override fun <T> encodeSerializableElement(
@@ -156,97 +206,29 @@ internal class StreamingXmlEncoder(
         }
     }
 
-    private fun encodeElement(
-        descriptor: SerialDescriptor,
-        index: Int,
-        encodeValue: (encoder: StreamingXmlEncoder) -> Unit
-    ) {
-        // Encoding of list/map items
-        if (descriptor.kind == StructureKind.LIST || descriptor.kind == StructureKind.MAP) {
-            encodeValue(this)
-            return
-        }
-        // Element is to be encoded as an attribute
-        if (descriptor.isElementXmlAttribute(index)) {
-            val namespace = descriptor.getElementXmlNamespace(index)?.uri ?: NO_NAMESPACE_URI
-            val attributePrefix = getAttributeNamespacePrefix(namespace, namespaces)
-            val attributeName = descriptor.getElementXmlSerialName(index)
-            encodeValue(elementEncoder(descriptor, index, attributePrefix, attributeName))
-            return
-        }
-        // Element is being encoded as text
-        if (descriptor.isElementXmlText(index)) {
-            encodeValue(elementEncoder(descriptor, index))
-            return
-        }
-
-        if (descriptor.getElementDescriptor(index).kind is StructureKind) {
-            if (descriptor.isElementXmlWrap(index)) {
-                encodeWrappedElement(descriptor, index, encodeValue)
-            } else {
-                encodeValue(elementEncoder(descriptor, index))
-            }
-            return
-        }
-
-        encodeWrappedElement(descriptor, index, encodeValue)
-    }
-
-    private fun encodeWrappedElement(
-        descriptor: SerialDescriptor,
-        index: Int,
-        encodeValue: (encoder: StreamingXmlEncoder) -> Unit
-    ) {
-        val namespace = getElementNamespace(descriptor.getElementXmlNamespace(index), namespaces)
-        val prefix = getElementNamespacePrefix(namespace, namespaces)
-        val name = descriptor.getElementXmlSerialName(index)
-
-        val isStructure = descriptor.getElementDescriptor(index).kind is StructureKind
-        val contentEncoder =
-            StreamingXmlEncoder(
-                xml,
-                Composer(composer),
-                namespaces,
-                this,
-                if (isStructure) null else descriptor,
-                if (isStructure) -1 else index
-            )
-        encodeValue(contentEncoder)
-
-        composer.startElement(prefix, name)
-        if (contentEncoder.composer.isEmpty()) {
-            composer.selfEndElement()
-        } else {
-            composer
-                .endElementStart()
-                .appendComposer(contentEncoder.composer)
-                .endElement(prefix, name)
-        }
-    }
-
     override fun encodeBooleanElement(descriptor: SerialDescriptor, index: Int, value: Boolean) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Boolean.serializer(), value)
 
     override fun encodeByteElement(descriptor: SerialDescriptor, index: Int, value: Byte) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Byte.serializer(), value)
 
     override fun encodeShortElement(descriptor: SerialDescriptor, index: Int, value: Short) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Short.serializer(), value)
 
     override fun encodeIntElement(descriptor: SerialDescriptor, index: Int, value: Int) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Int.serializer(), value)
 
     override fun encodeLongElement(descriptor: SerialDescriptor, index: Int, value: Long) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Long.serializer(), value)
 
     override fun encodeFloatElement(descriptor: SerialDescriptor, index: Int, value: Float) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Float.serializer(), value)
 
     override fun encodeDoubleElement(descriptor: SerialDescriptor, index: Int, value: Double) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Double.serializer(), value)
 
     override fun encodeCharElement(descriptor: SerialDescriptor, index: Int, value: Char) =
-        encodeStringElement(descriptor, index, value.toString())
+        encodeSerializableElement(descriptor, index, Char.serializer(), value)
 
     override fun encodeStringElement(descriptor: SerialDescriptor, index: Int, value: String) =
         encodeSerializableElement(descriptor, index, String.serializer(), value)
@@ -254,23 +236,42 @@ internal class StreamingXmlEncoder(
     override fun encodeInlineElement(descriptor: SerialDescriptor, index: Int): Encoder = this
 
     private fun encodeValue(descriptor: SerialDescriptor, value: String) {
-        // No element descriptor is defined: this means that this value is not a property of a
-        // structure, in which case we need to wrap it in an element
-        if (elementDescriptor == null) {
-            val encoder = beginStructure(descriptor)
-            encoder.composer.appendText(value)
-            encoder.endStructure(descriptor)
-            return
+        if (elementDescriptor != null) {
+            // Value is being encoded as the attribute of an XML element
+            if (elementDescriptor.isElementXmlAttribute(elementIndex)) {
+                val namespace =
+                    elementDescriptor.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
+                val attributePrefix = getAttributeNamespacePrefix(namespace, namespaces)
+                val attributeName = elementDescriptor.getElementXmlSerialName(elementIndex)
+                parentEncoder!!.composer.appendAttribute(attributePrefix, attributeName, value)
+                return
+            }
+
+            // Value is being encoded as the text of an XML element
+            if (elementDescriptor.isElementXmlText(elementIndex)) {
+                composer.appendText(value)
+                return
+            }
         }
 
-        // Value is being encoded as the attribute of an element
-        if (attributeName != null) {
-            parentEncoder!!.composer.appendAttribute(attributePrefix!!, attributeName, value)
-            return
-        }
+        // Value is being encoded as an XML element
+        val namespace =
+            getElementNamespace(
+                elementDescriptor?.getElementXmlNamespace(elementIndex)
+                    ?: descriptor.getXmlNamespace(),
+                namespaces
+            )
+        val prefix = getElementNamespacePrefix(namespace, namespaces)
+        val name =
+            elementDescriptor?.getElementXmlSerialName(elementIndex)
+                ?: descriptor.getXmlSerialName()
 
-        // Value is being encoded as the text of an element
-        composer.appendText(value)
+        composer.startElement(prefix, name)
+        if (value.isEmpty()) {
+            composer.selfEndElement()
+        } else {
+            composer.endElementStart().appendText(value).endElement(prefix, name)
+        }
     }
 
     override fun encodeNull() {

@@ -149,8 +149,8 @@ class XmlEncoderTest {
         val expected =
             """
             <ClassWithMap>
-                <map key="a" value="b"/>
-                <map key="c" value="d"/>
+                <map key="a" value="b" />
+                <map key="c" value="d" />
             </ClassWithMap>
             """
                 .trimIndent()
@@ -183,7 +183,7 @@ class XmlEncoderTest {
 
         val actual = Xml { encodeDefaults = true }.encodeToString(SimpleAttributes())
         val expected =
-            """<SimpleAttributes first="string" second="1" third="4.32" fourth="1.23" fifth="123" sixth="false"><seventh>true</seventh></SimpleAttributes>"""
+            """<SimpleAttributes first="string" second="1" third="4.32" fourth="1.23" fifth="123" sixth="0"><seventh>1</seventh></SimpleAttributes>"""
         assertEquals(expected, actual)
     }
 
@@ -267,15 +267,27 @@ class XmlEncoderTest {
     }
 
     @Test
-    fun testEncodeWrap() {
-        @Serializable data class Box(@XmlText val content: String)
+    fun testEncodeElementWrapping() {
+        @Serializable data class Wrapper(@XmlAttribute val text: String)
 
         @Serializable
-        data class Wrapper(
-            val box: Box = Box("a"),
-            @XmlWrap val wrapBox: Box = Box("b"),
-            val boxList: List<Box> = listOf(Box("c"), Box("d")),
-            @XmlWrap val wrapBoxList: List<Box> = listOf(Box("e"), Box("f"))
+        data class ElementWrapping(
+            val flatString: String = "x",
+            @XmlWrap val wrapString: String = "x",
+            val flatClass: Wrapper = Wrapper("x"),
+            @XmlWrap val wrapClass: Wrapper = Wrapper("x"),
+            val flatStringList: List<String> = listOf("x", "y"),
+            @XmlWrap val wrapStringList: List<String> = listOf("x", "y"),
+            val flatClassList: List<Wrapper> = listOf(Wrapper("x"), Wrapper("y")),
+            @XmlWrap val wrapClassList: List<Wrapper> = listOf(Wrapper("x"), Wrapper("y")),
+            val flatStringListList: List<List<String>> = listOf(listOf("x", "y"), listOf("w", "z")),
+            @XmlWrap
+            val wrapStringListList: List<List<String>> = listOf(listOf("x", "y"), listOf("w", "z")),
+            val flatClassListList: List<List<Wrapper>> =
+                listOf(listOf(Wrapper("x"), Wrapper("y")), listOf(Wrapper("w"), Wrapper("z"))),
+            @XmlWrap
+            val wrapClassListList: List<List<Wrapper>> =
+                listOf(listOf(Wrapper("x"), Wrapper("y")), listOf(Wrapper("w"), Wrapper("z")))
         )
 
         val actual =
@@ -283,21 +295,67 @@ class XmlEncoderTest {
                     encodeDefaults = true
                     prettyPrint = true
                 }
-                .encodeToString(Wrapper())
+                .encodeToString(ElementWrapping())
         val expected =
             """
-            <Wrapper>
-                <box>a</box>
-                <wrapBox>
-                    <Box>b</Box>
-                </wrapBox>
-                <boxList>c</boxList>
-                <boxList>d</boxList>
-                <wrapBoxList>
-                    <Box>e</Box>
-                    <Box>f</Box>
-                </wrapBoxList>
-            </Wrapper>
+            <ElementWrapping>
+                <flatString>x</flatString>
+                <wrapString>
+                    <String>x</String>
+                </wrapString>
+                <flatClass text="x" />
+                <wrapClass>
+                    <Wrapper text="x" />
+                </wrapClass>
+                <flatStringList>x</flatStringList>
+                <flatStringList>y</flatStringList>
+                <wrapStringList>
+                    <String>x</String>
+                    <String>y</String>
+                </wrapStringList>
+                <flatClassList text="x" />
+                <flatClassList text="y" />
+                <wrapClassList>
+                    <Wrapper text="x" />
+                    <Wrapper text="y" />
+                </wrapClassList>
+                <flatStringListList>
+                    <String>x</String>
+                    <String>y</String>
+                </flatStringListList>
+                <flatStringListList>
+                    <String>w</String>
+                    <String>z</String>
+                </flatStringListList>
+                <wrapStringListList>
+                    <ArrayList>
+                        <String>x</String>
+                        <String>y</String>
+                    </ArrayList>
+                    <ArrayList>
+                        <String>w</String>
+                        <String>z</String>
+                    </ArrayList>
+                </wrapStringListList>
+                <flatClassListList>
+                    <Wrapper text="x" />
+                    <Wrapper text="y" />
+                </flatClassListList>
+                <flatClassListList>
+                    <Wrapper text="w" />
+                    <Wrapper text="z" />
+                </flatClassListList>
+                <wrapClassListList>
+                    <ArrayList>
+                        <Wrapper text="x" />
+                        <Wrapper text="y" />
+                    </ArrayList>
+                    <ArrayList>
+                        <Wrapper text="w" />
+                        <Wrapper text="z" />
+                    </ArrayList>
+                </wrapClassListList>
+            </ElementWrapping>
             """
                 .trimIndent()
         assertEquals(expected, actual)

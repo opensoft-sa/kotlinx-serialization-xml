@@ -84,6 +84,11 @@ internal class ComposerWithPrettyPrint(
         return super.endElement(prefix, name)
     }
 
+    override fun selfEndElement(): Composer {
+        sb.append(' ')
+        return super.selfEndElement()
+    }
+
     override fun appendText(value: String): Composer {
         prevContentWasText = true
         return super.appendText(value)
