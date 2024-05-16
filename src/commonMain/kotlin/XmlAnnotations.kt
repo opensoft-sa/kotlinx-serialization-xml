@@ -43,15 +43,6 @@ public annotation class DeclaresXmlNamespace(
 public annotation class XmlName(public val value: String)
 
 /**
- * Annotation used to specify the name of an XML element representing the item of a list or map.
- *
- * Use together with [XmlItemNamespace] to fully qualify the item's name.
- */
-@SerialInfo
-@Target(AnnotationTarget.PROPERTY)
-public annotation class XmlItemName(public val value: String)
-
-/**
  * Annotation used to specify the namespace of an element or attribute.
  *
  * If no [XmlNamespace] is provided to a class or property representing an XML element, then the
@@ -81,24 +72,6 @@ public annotation class XmlNamespace(
     public val preferredPrefix: String = ""
 )
 
-/**
- * Annotation used to specify the namespace of an XML element representing the item of a list or
- * map.
- *
- * Use together with [XmlItemName] to fully qualify the item's name.
- */
-@SerialInfo
-@Target(AnnotationTarget.PROPERTY)
-public annotation class XmlItemNamespace(
-    /** Namespace name, identified by a URI. */
-    public val uri: String,
-    /**
-     * Optional preferred namespace prefix used when auto-generating a namespace declaration. This
-     * value will be ignored when the namespace is already in scope.
-     */
-    public val preferredPrefix: String = ""
-)
-
 /** Properties annotated with [XmlAttribute] will be serialized as attributes of an XML element. */
 @SerialInfo @Target(AnnotationTarget.PROPERTY) public annotation class XmlAttribute
 
@@ -114,3 +87,29 @@ public annotation class XmlItemNamespace(
  * [wrapStructuredProperties][XmlBuilder.wrapStructuredProperties] is set to `false` (the default).
  */
 @SerialInfo @Target(AnnotationTarget.PROPERTY) public annotation class XmlWrap
+
+/**
+ * Annotation used to specify the name of an XML element wrapped via the [XmlWrap] annotation.
+ *
+ * Use together with [XmlWrappedNamespace] to fully qualify the item's name.
+ */
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+public annotation class XmlWrappedName(public val value: String)
+
+/**
+ * Annotation used to specify the namespace an XML element wrapped via the [XmlWrap] annotation.
+ *
+ * Use together with [XmlWrappedName] to fully qualify the item's name.
+ */
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+public annotation class XmlWrappedNamespace(
+    /** Namespace name, identified by a URI. */
+    public val uri: String,
+    /**
+     * Optional preferred namespace prefix used when auto-generating a namespace declaration. This
+     * value will be ignored when the namespace is already in scope.
+     */
+    public val preferredPrefix: String = ""
+)

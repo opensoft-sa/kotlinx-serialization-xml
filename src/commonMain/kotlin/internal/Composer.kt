@@ -5,21 +5,31 @@ import pt.opensoft.kotlinx.serialization.xml.Xml
 private const val DEFAULT_SB_CAPACITY = 128
 
 /** Creates a composer from an [Xml] instance. */
-internal fun Composer(xml: Xml): Composer {
+internal fun Composer(xml: Xml = Xml.Default): Composer {
     val sb = StringBuilder(DEFAULT_SB_CAPACITY)
     return if (xml.configuration.prettyPrint)
         ComposerWithPrettyPrint(sb, xml.configuration.prettyPrintIndent)
     else Composer(sb)
 }
 
-/** Creates a composer from another composer. */
-internal fun Composer(from: Composer): Composer {
+/**
+ * Creates a composer to compose the content of an element independently from its parent element.
+ */
+internal fun contentComposer(from: Composer): Composer {
     val sb = StringBuilder(DEFAULT_SB_CAPACITY)
     return if (from is ComposerWithPrettyPrint) ComposerWithPrettyPrint(sb, from) else Composer(sb)
 }
 
 internal open class Composer(protected val sb: StringBuilder) {
     fun isEmpty() = sb.isEmpty()
+
+    fun appendProlog(prolog: String?): Composer = also {
+        prolog?.let { sb.append(prolog).appendLine() }
+    }
+
+    open fun indent(): Composer = this
+
+    open fun unIndent(): Composer = this
 
     open fun startElement(prefix: String, name: String): Composer = also {
         sb.append("<").appendPrefixedName(prefix, name)
@@ -55,6 +65,49 @@ internal open class Composer(protected val sb: StringBuilder) {
             }
             append(name)
         }
+
+    /** Escapes an attribute value (assuming the attribute value is declared with double quotes). */
+    private fun StringBuilder.appendXmlAttributeValue(value: String) = also {
+        ensureCapacity(length + value.length)
+        var i = 0
+        while (i < value.length) {
+            when (val c = value[i]) {
+                '<' -> append("&lt;")
+                '&' -> append("&amp;")
+                '"' -> append("&quot;")
+                ']' ->
+                    if (value[i + 1] == ']' && value[i + 2] == '>') {
+                        append("]]&gt;")
+                        i += 2
+                    } else {
+                        append(c)
+                    }
+                else -> append(c)
+            }
+            ++i
+        }
+    }
+
+    /** Escapes a value to be used as text content. */
+    private fun StringBuilder.appendXmlText(content: String) = also {
+        ensureCapacity(length + content.length)
+        var i = 0
+        while (i < content.length) {
+            when (val c = content[i]) {
+                '<' -> append("&lt;")
+                '&' -> append("&amp;")
+                ']' ->
+                    if (content[i + 1] == ']' && content[i + 2] == '>') {
+                        append("]]&gt;")
+                        i += 2
+                    } else {
+                        append(c)
+                    }
+                else -> append(c)
+            }
+            ++i
+        }
+    }
 }
 
 internal class ComposerWithPrettyPrint(
@@ -67,6 +120,10 @@ internal class ComposerWithPrettyPrint(
         sb: StringBuilder,
         composer: ComposerWithPrettyPrint
     ) : this(sb, composer.indent, composer.level + 1)
+
+    override fun indent() = also { level += 1 }
+
+    override fun unIndent() = also { level -= 1 }
 
     override fun startElement(prefix: String, name: String): Composer {
         if (level != 0 && !prevContentWasText) {

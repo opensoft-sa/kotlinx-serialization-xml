@@ -24,6 +24,7 @@ internal const val DEFAULT_CLASS_DESCRIMINATOR_ATTRIBUTE_NAME = "type"
 public class XmlConfiguration
 internal constructor(
     public val encodeDefaults: Boolean = false,
+    public val prolog: String? = null,
     public val prettyPrint: Boolean = false,
     public val prettyPrintIndent: String = DEFAULT_PRETTY_PRINT_INDENT,
     public val booleanEncoding: BooleanEncoding = BooleanEncoding.NUMERIC,
@@ -36,6 +37,7 @@ internal constructor(
     override fun toString(): String {
         return "XmlConfiguration(" +
             "encodeDefaults=$encodeDefaults, " +
+            "prolog=$prolog, " +
             "prettyPrint=$prettyPrint, " +
             "prettyPrintIndent='$prettyPrintIndent', " +
             "booleanEncoding=$booleanEncoding, " +

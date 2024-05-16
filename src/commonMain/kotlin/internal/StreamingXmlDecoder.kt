@@ -24,7 +24,7 @@ internal class XmlElementDecoder(
 
     private val namespaceMap = parentNamespaceMap.toMutableMap()
 
-    private data class Name(val name: String, val namespaceUri: String?)
+    private data class Name(val name: String, val uri: String)
 
     private val elementNames =
         (0 until descriptor.elementsCount).map { i ->
@@ -39,7 +39,7 @@ internal class XmlElementDecoder(
                         descriptor.getElementDescriptor(i).annotations)
                     .filterIsInstance<XmlNamespace>()
                     .firstOrNull()
-                    ?.uri
+                    ?.uri ?: NO_NAMESPACE_URI
             Name(name, namespace)
         }
 
@@ -57,7 +57,7 @@ internal class XmlElementDecoder(
     private fun getElementIndex(name: String, namespace: String?): Int {
         val namespaceUri =
             namespace?.let { namespaceMap[it] ?: throw UndefinedNamespaceException(it) }
-        val index = elementNames.indexOfFirst { it.name == name && it.namespaceUri == namespaceUri }
+        val index = elementNames.indexOfFirst { it.name == name && it.uri == namespaceUri }
         return if (index > -1) index else UNKNOWN_NAME
     }
 
@@ -67,9 +67,12 @@ internal class XmlElementDecoder(
         var t = l.readNextToken()
         while (t !is XmlLexer.Token.ElementStartEnd && t !is XmlLexer.Token.ElementEnd) {
             if (
-                t is XmlLexer.Token.AttributeName && (t.namespace == "xmlns" || t.name == "xmlns")
+                t is XmlLexer.Token.AttributeName &&
+                    (t.prefix == XMLNS_NAMESPACE_PREFIX ||
+                        t.name == XMLNS_NAMESPACE_PREFIX && t.prefix != null)
             ) {
-                val localName = if (t.namespace == "xmlns") t.name else DEFAULT_NAMESPACE
+                val localName =
+                    if (t.prefix == XMLNS_NAMESPACE_PREFIX) t.name else DEFAULT_NAMESPACE
 
                 val namespaceUri = l.readNextToken()
                 require(namespaceUri is XmlLexer.Token.AttributeValue)
@@ -87,16 +90,16 @@ internal class XmlElementDecoder(
                 is XmlLexer.Token.ElementEnd -> return DECODE_DONE
                 is XmlLexer.Token.ElementStart -> {
                     collectNamespaces()
-                    return getElementIndex(token.name, token.namespace)
+                    return getElementIndex(token.name, token.prefix)
                 }
                 is XmlLexer.Token.AttributeName -> {
                     // Namespaces have already been read when we consumed the ElementStart token.
-                    if (token.namespace == "xmlns" || token.name == "xmlns") {
+                    if (token.prefix == "xmlns" || token.name == "xmlns") {
                         require(lexer.readNextToken() is XmlLexer.Token.AttributeValue)
                         continue
                     }
 
-                    return getElementIndex(token.name, token.namespace)
+                    return getElementIndex(token.name, token.prefix)
                 }
                 is XmlLexer.Token.Text -> {
                     lastTextToken = token
@@ -171,9 +174,7 @@ internal class XmlElementDecoder(
     }
 
     @ExperimentalSerializationApi
-    override fun decodeSequentially(): Boolean {
-        return super.decodeSequentially()
-    }
+    override fun decodeSequentially(): Boolean = super.decodeSequentially()
 
     override fun <T> decodeSerializableElement(
         descriptor: SerialDescriptor,

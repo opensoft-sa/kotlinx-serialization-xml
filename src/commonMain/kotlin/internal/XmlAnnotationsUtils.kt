@@ -1,30 +1,23 @@
 package pt.opensoft.kotlinx.serialization.xml.internal
 
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.descriptors.StructureKind
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.*
+import kotlinx.serialization.modules.SerializersModule
 import pt.opensoft.kotlinx.serialization.xml.*
 
-/** Gets the XML name of an element. */
-internal fun SerialDescriptor.getXmlName(): String? =
+/** Gets the name of an XML element. */
+internal fun SerialDescriptor.getXmlName(): String =
     annotations.filterIsInstance<XmlName>().firstOrNull()?.value
+        ?: serialName.substringAfterLast(".")
 
-/** Gets the XML name of an element. */
-internal fun SerialDescriptor.getElementXmlName(index: Int): String? =
+/** Gets the name of an XML element or attribute at the provided [index]. */
+internal fun SerialDescriptor.getElementXmlName(index: Int): String =
     getElementAnnotations(index).filterIsInstance<XmlName>().firstOrNull()?.value
-        ?: getElementDescriptor(index).annotations.filterIsInstance<XmlName>().firstOrNull()?.value
+        ?: getElementName(index)
 
-/** Gets the serial name of an XML element. */
-internal fun SerialDescriptor.getXmlSerialName(): String =
-    getXmlName() ?: serialName.substringAfterLast(".")
-
-/** Gets the serial name of an XML element or attribute at the provided [index]. */
-internal fun SerialDescriptor.getElementXmlSerialName(index: Int): String =
-    getElementXmlName(index)
-        ?: getElementDescriptor(index).let { descriptor ->
-            if (this.kind is StructureKind.LIST || this.kind is StructureKind.MAP)
-                descriptor.getXmlSerialName()
-            else descriptor.getXmlName() ?: getElementName(index)
-        }
+/** Gets the name of a wrapped XML element at the provided [index]. */
+internal fun SerialDescriptor.getElementXmlWrappedName(index: Int): String? =
+    getElementAnnotations(index).filterIsInstance<XmlWrappedName>().firstOrNull()?.value
 
 /** Gets the list of namespace declarations of an XML element. */
 internal fun SerialDescriptor.getXmlNamespaceDeclarations(): List<DeclaresXmlNamespace> =
@@ -37,7 +30,10 @@ internal fun SerialDescriptor.getXmlNamespace(): XmlNamespace? =
 /** Gets the namespace of an XML element or attribute at the provided [index]. */
 internal fun SerialDescriptor.getElementXmlNamespace(index: Int): XmlNamespace? =
     getElementAnnotations(index).filterIsInstance<XmlNamespace>().firstOrNull()
-        ?: getElementDescriptor(index).getXmlNamespace()
+
+/** Gets the wrapped namespace of an XML element at the provided [index]. */
+internal fun SerialDescriptor.getElementXmlWrappedNamespace(index: Int): XmlWrappedNamespace? =
+    getElementAnnotations(index).filterIsInstance<XmlWrappedNamespace>().firstOrNull()
 
 /** Whether the element at the provided [index] is an XML attribute. */
 internal fun SerialDescriptor.isElementXmlAttribute(index: Int): Boolean =
@@ -53,6 +49,11 @@ internal fun SerialDescriptor.isElementXmlWrap(index: Int): Boolean =
 
 /** Validates the annotations of an XML element. */
 internal fun SerialDescriptor.validateXmlAnnotations() {
+    val name = getXmlName()
+    if (name.any { it.isWhitespace() }) {
+        throw XmlDescriptorException(this, "XML element names must not contain whitespaces")
+    }
+
     val namespaceDeclarations = getXmlNamespaceDeclarations()
     val namespaces = HashMap<String, String>(namespaceDeclarations.size)
     for (declaration in namespaceDeclarations) {
@@ -87,19 +88,31 @@ internal fun SerialDescriptor.validateElementXmlAnnotations() {
     (0 until elementsCount).forEach { i ->
         val isAttribute = isElementXmlAttribute(i)
         val isText = isElementXmlText(i)
-        val descriptor = getElementDescriptor(i)
-        val hasNamespace = descriptor.getXmlNamespace() != null
-        val hasXmlName = descriptor.getXmlName() != null
+        val isWrap = isElementXmlWrap(i)
 
-        if (isText) {
-            if (isAttribute) {
+        val hasName = getElementAnnotations(i).filterIsInstance<XmlName>().firstOrNull() != null
+        val hasNamespace = getElementXmlNamespace(i) != null
+        val hasWrappedName = getElementXmlWrappedName(i) != null
+        val hasWrappedNamespace = getElementXmlWrappedNamespace(i) != null
+
+        if (isAttribute) {
+            if (isText) {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlAttribute " +
                         "and @XmlText annotations."
                 )
             }
-            if (hasXmlName) {
+            if (isWrap) {
+                throw XmlDescriptorException(
+                    this,
+                    "Property '${getElementName(i)}' cannot have both @XmlAttribute " +
+                        "and @XmlWrap annotations."
+                )
+            }
+        }
+        if (isText) {
+            if (hasName) {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlText and " +
@@ -113,6 +126,13 @@ internal fun SerialDescriptor.validateElementXmlAnnotations() {
                         "and @XmlNamespace annotations."
                 )
             }
+            if (isWrap) {
+                throw XmlDescriptorException(
+                    this,
+                    "Property '${getElementName(i)}' cannot have both @XmlText and @XmlWrap " +
+                        "annotations."
+                )
+            }
             if (hasText) {
                 throw XmlDescriptorException(
                     this,
@@ -121,5 +141,40 @@ internal fun SerialDescriptor.validateElementXmlAnnotations() {
             }
             hasText = true
         }
+        if (!isWrap) {
+            if (hasWrappedName) {
+                throw XmlDescriptorException(
+                    this,
+                    "Property '${getElementName(i)}' cannot have @XmlWrappedName while not " +
+                        "having the @XmlWrap annotation."
+                )
+            }
+            if (hasWrappedNamespace) {
+                throw XmlDescriptorException(
+                    this,
+                    "Property '${getElementName(i)}' cannot have @XmlWrappedNamespace while not " +
+                        "having the @XmlWrap annotation."
+                )
+            }
+        }
     }
 }
+
+// XXX: Workaround for https://github.com/Kotlin/kotlinx.serialization/issues/2535
+private val mockSerializersList = List(20) { String.serializer() }
+
+/** Returns the "actual" descriptor, given a possibly contextual or inline one. */
+internal fun SerialDescriptor.actualDescriptor(module: SerializersModule): SerialDescriptor =
+    when {
+        // FIXME: use module.getContextualDescriptor once
+        //  https://github.com/Kotlin/kotlinx.serialization/issues/2535 is fixed
+        kind == SerialKind.CONTEXTUAL ->
+            capturedKClass?.let { klass ->
+                module
+                    .getContextual(klass, mockSerializersList)
+                    ?.descriptor
+                    ?.actualDescriptor(module)
+            } ?: this
+        isInline -> getElementDescriptor(0).actualDescriptor(module)
+        else -> this
+    }

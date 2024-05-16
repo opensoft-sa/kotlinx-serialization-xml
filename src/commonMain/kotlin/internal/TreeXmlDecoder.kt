@@ -1,6 +1,5 @@
 package pt.opensoft.kotlinx.serialization.xml.internal
 
-import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -10,10 +9,7 @@ import pt.opensoft.kotlinx.serialization.xml.Xml
 import pt.opensoft.kotlinx.serialization.xml.XmlDecoder
 import pt.opensoft.kotlinx.serialization.xml.XmlElement
 
-public fun <T> readXml(xml: Xml, element: XmlElement, deserializer: DeserializationStrategy<T>): T =
-    XmlTreeDecoder(xml, element).decodeSerializableValue(deserializer)
-
-private class XmlTreeDecoder(
+internal class TreeXmlDecoder(
     override val xml: Xml,
     private val element: XmlElement,
     /** Namespaces in scope by prefix. */

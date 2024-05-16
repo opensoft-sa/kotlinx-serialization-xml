@@ -21,14 +21,6 @@ public object XmlElementSerializer : KSerializer<XmlElement> {
     }
 }
 
-private fun verify(decoder: Decoder) {
-    decoder.asXmlDecoder()
-}
-
-private fun verify(encoder: Encoder) {
-    encoder.asXmlEncoder()
-}
-
 internal fun Decoder.asXmlDecoder() =
     this as? XmlDecoder
         ?: throw IllegalStateException(

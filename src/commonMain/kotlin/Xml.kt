@@ -41,7 +41,7 @@ public sealed class Xml(
      * @throws [SerializationException] if the given value cannot be serialized to XML.
      */
     override fun <T> encodeToString(serializer: SerializationStrategy<T>, value: T): String {
-        val composer = Composer(this)
+        val composer = Composer(this).appendProlog(configuration.prolog)
         val encoder = StreamingXmlEncoder(this, composer)
         serializer.serialize(encoder, value)
         return composer.toString()
@@ -66,8 +66,7 @@ public sealed class Xml(
      *   instance of type [T].
      */
     override fun <T> decodeFromString(deserializer: DeserializationStrategy<T>, string: String): T {
-        val lexer = XmlLexer(string)
-        val input = StreamingXmlDecoder(this, lexer)
+        val input = StreamingXmlDecoder(this, XmlLexer(string))
         return input.decodeSerializableValue(deserializer)
     }
 
@@ -76,8 +75,11 @@ public sealed class Xml(
      *
      * @throws [SerializationException] if the given value cannot be serialized to XML.
      */
-    public fun <T> encodeToXmlElement(serializer: SerializationStrategy<T>, value: T): XmlElement =
-        writeXml(this, value, serializer)
+    public fun <T> encodeToXmlElement(serializer: SerializationStrategy<T>, value: T): XmlElement {
+        val encoder = TreeXmlEncoder(this)
+        serializer.serialize(encoder, value)
+        return encoder.rootElement
+    }
 
     /**
      * Deserializes the given [element] into a value of type [T] using the given [deserializer].
@@ -90,7 +92,7 @@ public sealed class Xml(
     public fun <T> decodeFromXmlElement(
         deserializer: DeserializationStrategy<T>,
         element: XmlElement
-    ): T = readXml(this, element, deserializer)
+    ): T = TreeXmlDecoder(this, element).decodeSerializableValue(deserializer)
 
     /**
      * Deserializes the given XML [string] into a corresponding [XmlElement] representation.
@@ -108,7 +110,7 @@ public sealed class Xml(
 public fun Xml(from: Xml = Xml.Default, builderAction: XmlBuilder.() -> Unit): Xml {
     val builder = XmlBuilder(from)
     builder.builderAction()
-    return XmlImpl(builder.build(), from.serializersModule)
+    return XmlImpl(builder.build(), builder.serializersModule)
 }
 
 /**
@@ -138,6 +140,15 @@ public class XmlBuilder internal constructor(xml: Xml) {
      * Specifies whether default values of Kotlin properties should be encoded. `false` by default.
      */
     public var encodeDefaults: Boolean = xml.configuration.encodeDefaults
+
+    /**
+     * Prolog to use during encoding. None by default.
+     *
+     * A new line is automatically appended to the prolog when one is provided.
+     *
+     * This setting does not affect decoding, where all prologs are ignored.
+     */
+    public var prolog: String? = xml.configuration.prolog
 
     /** Specifies whether resulting XML should be pretty-printed. `false` by default. */
     public var prettyPrint: Boolean = xml.configuration.prettyPrint
@@ -197,6 +208,16 @@ public class XmlBuilder internal constructor(xml: Xml) {
     public var classDiscriminatorAttributeNamespace: String =
         xml.configuration.classDiscriminatorAttributeNamespace
 
+    /**
+     * Module with contextual and polymorphic serializers to be used in the resulting [Xml]
+     * instance.
+     *
+     * @see SerializersModule
+     * @see Contextual
+     * @see Polymorphic
+     */
+    public var serializersModule: SerializersModule = xml.serializersModule
+
     internal fun build(): XmlConfiguration {
         if (!prettyPrint) {
             require(prettyPrintIndent == DEFAULT_PRETTY_PRINT_INDENT) {
@@ -213,6 +234,7 @@ public class XmlBuilder internal constructor(xml: Xml) {
 
         return XmlConfiguration(
             encodeDefaults,
+            prolog,
             prettyPrint,
             prettyPrintIndent,
             booleanEncoding

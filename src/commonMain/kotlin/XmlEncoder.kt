@@ -11,6 +11,9 @@ public interface XmlEncoder : Encoder, CompositeEncoder {
     /** An instance of the current [Xml]. */
     public val xml: Xml
 
+    /** Namespaces currently in scope. Mapping of prefixes to their respective URIs. */
+    public val namespaces: Map<String, String>
+
     /**
      * Appends the given XML [element] to the current output. This method is allowed to invoke only
      * as the part of the whole serialization process of the class, calling this method after

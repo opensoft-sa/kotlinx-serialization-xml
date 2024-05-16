@@ -1,5 +1,6 @@
 package pt.opensoft.kotlinx.serialization.xml.internal
 
+import encodeXmlElement
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -11,14 +12,8 @@ import pt.opensoft.kotlinx.serialization.xml.*
 internal class StreamingXmlEncoder(
     override val xml: Xml,
     private val composer: Composer,
-    /** Namespaces in scope by prefix. */
-    private val namespaces: Map<String, String> = GLOBAL_NAMESPACES,
-    private val parentEncoder: StreamingXmlEncoder? = null,
-    private val elementDescriptor: SerialDescriptor? = null,
-    private val elementIndex: Int = -1,
-    private val attributePrefix: String? = null,
-    private val attributeName: String? = null,
-    private val flattenStructure: Boolean = false,
+    override val namespaces: Map<String, String> = GLOBAL_NAMESPACES,
+    private val parentEncoder: StreamingXmlEncoder? = null
 ) : XmlEncoder {
     override val serializersModule: SerializersModule
         get() = xml.serializersModule
@@ -26,39 +21,38 @@ internal class StreamingXmlEncoder(
     private val configuration
         get() = xml.configuration
 
-    private fun elementEncoder(
-        elementDescriptor: SerialDescriptor,
-        elementIndex: Int,
-        attributePrefix: String? = null,
-        attributeName: String? = null,
-        flattenStructure: Boolean = false
-    ) =
-        StreamingXmlEncoder(
-            xml,
-            composer,
-            namespaces,
-            parentEncoder,
-            elementDescriptor,
-            elementIndex,
-            attributePrefix,
-            attributeName,
-            flattenStructure
-        )
+    private var elementDescriptor: SerialDescriptor? = null
+    private var elementIndex: Int = -1
+    private var wrappedElementDescriptor: SerialDescriptor? = null
+    private var wrappedElementIndex: Int = -1
+    private var flattenStructure: Boolean = false
 
-    private fun contentEncoder(
+    private fun copy(
+        composer: Composer = this.composer,
         namespaces: Map<String, String> = this.namespaces,
-        flattenStructure: Boolean = false
-    ) =
-        StreamingXmlEncoder(
-            xml,
-            Composer(composer),
-            namespaces,
-            this,
-            flattenStructure = flattenStructure
-        )
+        parentEncoder: StreamingXmlEncoder? = this.parentEncoder
+    ) = StreamingXmlEncoder(xml, composer, namespaces, parentEncoder)
 
     override fun encodeXmlElement(element: XmlElement) {
-        encodeSerializableValue(XmlElementSerializer, element)
+        val toEncode =
+            if (wrappedElementDescriptor == null && elementDescriptor == null) element
+            else {
+                val name =
+                    wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
+                        ?: elementDescriptor?.getElementXmlName(elementIndex)
+                        ?: element.name
+                val namespace =
+                    getElementNamespace(
+                        wrappedElementDescriptor
+                            ?.getElementXmlWrappedNamespace(wrappedElementIndex)
+                            ?.uri
+                            ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
+                            ?: element.namespace,
+                        namespaces
+                    )
+                element.copy(name = name, namespace = namespace)
+            }
+        composer.encodeXmlElement(toEncode, namespaces)
     }
 
     override fun shouldEncodeElementDefault(descriptor: SerialDescriptor, index: Int): Boolean =
@@ -66,22 +60,20 @@ internal class StreamingXmlEncoder(
 
     override fun beginStructure(descriptor: SerialDescriptor): StreamingXmlEncoder {
         if (flattenStructure) {
-            return StreamingXmlEncoder(
-                xml,
-                composer,
-                namespaces,
-                this,
-                elementDescriptor,
-                elementIndex
-            )
+            val contentEncoder = copy(parentEncoder = this)
+            contentEncoder.elementDescriptor = elementDescriptor
+            contentEncoder.elementIndex = elementIndex
+            contentEncoder.wrappedElementDescriptor = wrappedElementDescriptor
+            contentEncoder.wrappedElementIndex = wrappedElementIndex
+            return contentEncoder
         }
 
         descriptor.validateXmlAnnotations()
         descriptor.validateElementXmlAnnotations()
 
         val namespacesInScope = namespaces.toMutableMap()
-        val attributesComposer = Composer(composer)
-        val addAttribute: (XmlElement.Attribute) -> Unit = {
+        val attributesComposer = contentComposer(composer)
+        val declareNamespace: (XmlElement.Attribute) -> Unit = {
             val prefix = getAttributeNamespacePrefix(it.namespace, namespacesInScope)
             attributesComposer.appendAttribute(prefix, it.name, it.value)
         }
@@ -90,31 +82,42 @@ internal class StreamingXmlEncoder(
         declareSpecifiedNamespaces(
             descriptor.getXmlNamespaceDeclarations(),
             namespacesInScope,
-            addAttribute
+            declareNamespace
         )
 
         // Obtain namespace of the element and declare it if not already in scope
         val namespace =
             getAndDeclareElementNamespace(
-                elementDescriptor?.getElementXmlNamespace(elementIndex)
-                    ?: descriptor.getXmlNamespace(),
+                wrappedElementDescriptor?.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
+                    ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
+                    ?: descriptor.getXmlNamespace()?.uri,
+                wrappedElementDescriptor
+                    ?.getElementXmlWrappedNamespace(wrappedElementIndex)
+                    ?.preferredPrefix
+                    ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.preferredPrefix
+                    ?: descriptor.getXmlNamespace()?.preferredPrefix,
                 namespacesInScope,
-                addAttribute
+                declareNamespace
             )
         val prefix = getElementNamespacePrefix(namespace, namespacesInScope)
 
         // Declare children namespaces not in scope
-        declareChildrenNamespaces(descriptor, namespacesInScope, addAttribute)
+        declareChildrenNamespaces(descriptor, namespacesInScope, declareNamespace)
 
         composer
             .startElement(
                 prefix,
-                elementDescriptor?.getElementXmlSerialName(elementIndex)
-                    ?: descriptor.getXmlSerialName()
+                wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
+                    ?: elementDescriptor?.getElementXmlName(elementIndex)
+                    ?: descriptor.getXmlName()
             )
             .appendComposer(attributesComposer)
 
-        return contentEncoder(namespacesInScope)
+        return copy(
+            composer = contentComposer(composer),
+            namespaces = namespacesInScope,
+            parentEncoder = this
+        )
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
@@ -129,8 +132,13 @@ internal class StreamingXmlEncoder(
 
         val namespace =
             getElementNamespace(
-                parentEncoder.elementDescriptor?.getElementXmlNamespace(parentEncoder.elementIndex)
-                    ?: descriptor.getXmlNamespace(),
+                parentEncoder.wrappedElementDescriptor
+                    ?.getElementXmlWrappedNamespace(parentEncoder.wrappedElementIndex)
+                    ?.uri
+                    ?: parentEncoder.elementDescriptor
+                        ?.getElementXmlNamespace(parentEncoder.elementIndex)
+                        ?.uri
+                    ?: descriptor.getXmlNamespace()?.uri,
                 namespaces
             )
         val prefix = getElementNamespacePrefix(namespace, namespaces)
@@ -140,8 +148,13 @@ internal class StreamingXmlEncoder(
             .appendComposer(composer)
             .endElement(
                 prefix,
-                parentEncoder.elementDescriptor?.getElementXmlSerialName(parentEncoder.elementIndex)
-                    ?: descriptor.getXmlSerialName()
+                parentEncoder.wrappedElementDescriptor?.getElementXmlWrappedName(
+                    parentEncoder.wrappedElementIndex
+                )
+                    ?: parentEncoder.elementDescriptor?.getElementXmlName(
+                        parentEncoder.elementIndex
+                    )
+                    ?: descriptor.getXmlName()
             )
     }
 
@@ -150,23 +163,30 @@ internal class StreamingXmlEncoder(
         index: Int,
         encodeValue: (encoder: StreamingXmlEncoder) -> Unit
     ) {
-        // Encoding a list or map item
-        if (descriptor.kind == StructureKind.LIST || descriptor.kind == StructureKind.MAP) {
+        // Encoding of a list or map item
+        if (
+            descriptor.kind == StructureKind.LIST ||
+                (descriptor.kind == StructureKind.MAP && index % 2 == 1)
+        ) {
             encodeValue(this)
             return
         }
 
-        val elementKind = descriptor.getElementDescriptor(index).kind
+        val elementKind =
+            descriptor.getElementDescriptor(index).actualDescriptor(serializersModule).kind
         val isCollection = elementKind == StructureKind.LIST || elementKind == StructureKind.MAP
 
-        // Wrap element
+        // Whether element should be wrapped
         if (descriptor.isElementXmlWrap(index)) {
             val namespace =
-                getElementNamespace(descriptor.getElementXmlNamespace(index), namespaces)
+                getElementNamespace(descriptor.getElementXmlNamespace(index)?.uri, namespaces)
             val prefix = getElementNamespacePrefix(namespace, namespaces)
-            val name = descriptor.getElementXmlSerialName(index)
+            val name = descriptor.getElementXmlName(index)
 
-            val contentEncoder = contentEncoder(flattenStructure = isCollection)
+            val contentEncoder = copy(composer = contentComposer(composer), parentEncoder = this)
+            contentEncoder.wrappedElementDescriptor = descriptor
+            contentEncoder.wrappedElementIndex = index
+            contentEncoder.flattenStructure = isCollection
             encodeValue(contentEncoder)
 
             composer.startElement(prefix, name)
@@ -178,9 +198,11 @@ internal class StreamingXmlEncoder(
                     .appendComposer(contentEncoder.composer)
                     .endElement(prefix, name)
             }
-            return
         } else {
-            encodeValue(elementEncoder(descriptor, index, flattenStructure = isCollection))
+            elementDescriptor = descriptor
+            elementIndex = index
+            flattenStructure = isCollection
+            encodeValue(this)
         }
     }
 
@@ -236,35 +258,35 @@ internal class StreamingXmlEncoder(
     override fun encodeInlineElement(descriptor: SerialDescriptor, index: Int): Encoder = this
 
     private fun encodeValue(descriptor: SerialDescriptor, value: String) {
-        if (elementDescriptor != null) {
-            // Value is being encoded as the attribute of an XML element
-            if (elementDescriptor.isElementXmlAttribute(elementIndex)) {
-                val namespace =
-                    elementDescriptor.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
-                val attributePrefix = getAttributeNamespacePrefix(namespace, namespaces)
-                val attributeName = elementDescriptor.getElementXmlSerialName(elementIndex)
-                parentEncoder!!.composer.appendAttribute(attributePrefix, attributeName, value)
-                return
-            }
+        // Value is being encoded as the attribute of an XML element
+        if (elementDescriptor?.isElementXmlAttribute(elementIndex) == true) {
+            val namespace =
+                elementDescriptor!!.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
+            val prefix = getAttributeNamespacePrefix(namespace, namespaces)
+            val name = elementDescriptor!!.getElementXmlName(elementIndex)
+            parentEncoder!!.composer.appendAttribute(prefix, name, value)
+            return
+        }
 
-            // Value is being encoded as the text of an XML element
-            if (elementDescriptor.isElementXmlText(elementIndex)) {
-                composer.appendText(value)
-                return
-            }
+        // Value is being encoded as the text of an XML element
+        if (elementDescriptor?.isElementXmlText(elementIndex) == true) {
+            composer.appendText(value)
+            return
         }
 
         // Value is being encoded as an XML element
         val namespace =
             getElementNamespace(
-                elementDescriptor?.getElementXmlNamespace(elementIndex)
-                    ?: descriptor.getXmlNamespace(),
+                wrappedElementDescriptor?.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
+                    ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
+                    ?: descriptor.getXmlNamespace()?.uri,
                 namespaces
             )
         val prefix = getElementNamespacePrefix(namespace, namespaces)
         val name =
-            elementDescriptor?.getElementXmlSerialName(elementIndex)
-                ?: descriptor.getXmlSerialName()
+            wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
+                ?: elementDescriptor?.getElementXmlName(elementIndex)
+                ?: descriptor.getXmlName()
 
         composer.startElement(prefix, name)
         if (value.isEmpty()) {
@@ -276,7 +298,7 @@ internal class StreamingXmlEncoder(
 
     override fun encodeNull() {
         if (parentEncoder == null) {
-            throw XmlSerializationException("Root element must not be null.")
+            throw XmlException("Root element must not be null.")
         }
     }
 
@@ -310,7 +332,7 @@ internal class StreamingXmlEncoder(
     override fun encodeString(value: String) = encodeValue(String.serializer().descriptor, value)
 
     override fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int) =
-        encodeValue(enumDescriptor, enumDescriptor.getElementName(index))
+        encodeValue(enumDescriptor, enumDescriptor.getElementXmlName(index))
 
     override fun encodeInline(descriptor: SerialDescriptor): Encoder = this
 }

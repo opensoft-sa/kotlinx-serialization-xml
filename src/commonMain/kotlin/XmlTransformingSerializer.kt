@@ -9,7 +9,7 @@ package pt.opensoft.kotlinx.serialization.xml
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
-import pt.opensoft.kotlinx.serialization.xml.internal.writeXml
+import pt.opensoft.kotlinx.serialization.xml.internal.TreeXmlEncoder
 
 /**
  * Base class for custom serializers that allows manipulating an abstract XML representation of the
@@ -45,16 +45,18 @@ public abstract class XmlTransformingSerializer<T : Any>(private val tSerializer
         get() = tSerializer.descriptor
 
     final override fun serialize(encoder: Encoder, value: T) {
-        val output = encoder.asXmlEncoder()
-        var element = writeXml(output.xml, value, tSerializer)
-        element = transformSerialize(element)
-        output.encodeXmlElement(element)
+        val xmlEncoder = encoder.asXmlEncoder()
+        val treeEncoder = TreeXmlEncoder(xmlEncoder.xml, xmlEncoder.namespaces)
+        treeEncoder.encodeSerializableValue(tSerializer, value)
+        xmlEncoder.encodeXmlElement(transformSerialize(treeEncoder.rootElement))
     }
 
     final override fun deserialize(decoder: Decoder): T {
-        val input = decoder.asXmlDecoder()
-        val element = input.decodeXmlElement()
-        return input.xml.decodeFromXmlElement(tSerializer, transformDeserialize(element))
+        val xmlDecoder = decoder.asXmlDecoder()
+        return xmlDecoder.xml.decodeFromXmlElement(
+            tSerializer,
+            transformDeserialize(xmlDecoder.decodeXmlElement())
+        )
     }
 
     /**

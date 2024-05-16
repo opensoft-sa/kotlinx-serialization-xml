@@ -48,17 +48,17 @@ internal class XmlLexer(private val source: String) {
         require(peek() == char) { "Unexpected token ${peek()}, expecting $char" }
     }
 
-    data class QualifiedName(val name: String, val namespace: String? = null)
+    data class QName(val local: String, val prefix: String? = null)
 
-    private fun readElementName(): QualifiedName {
+    private fun readElementName(): QName {
         skipWhitespace()
         var start = position
-        var namespace: String? = null
+        var prefix: String? = null
         while (true) {
             when (next()) {
                 null -> throw IllegalArgumentException("Unexpected end of file")
                 ':' -> {
-                    namespace = source.substring(start, position - 1)
+                    prefix = source.substring(start, position - 1)
                     start = position
                 }
                 '\r',
@@ -69,11 +69,11 @@ internal class XmlLexer(private val source: String) {
                 '/' -> break
             }
         }
-        val name = source.substring(start, --position)
-        return QualifiedName(name, namespace)
+        val local = source.substring(start, --position)
+        return QName(local, prefix)
     }
 
-    private fun readAttributeName(): QualifiedName {
+    private fun readAttributeName(): QName {
         skipWhitespace()
         var start = position
         var namespace: String? = null
@@ -93,7 +93,7 @@ internal class XmlLexer(private val source: String) {
             }
         }
         val name = source.substring(start, position)
-        return QualifiedName(name, namespace)
+        return QName(name, namespace)
     }
 
     private fun readAttributeValue(): String {
@@ -165,15 +165,12 @@ internal class XmlLexer(private val source: String) {
                                     val elementName = readElementName()
                                     skipWhitespace()
                                     next() // Consume the closing bracket
-                                    return Token.ElementEnd(elementName.name, elementName.namespace)
+                                    return Token.ElementEnd(elementName.local, elementName.prefix)
                                         .also { lastToken = it }
                                 }
                                 else -> {
                                     val elementName = readElementName()
-                                    return Token.ElementStart(
-                                        elementName.name,
-                                        elementName.namespace
-                                    )
+                                    return Token.ElementStart(elementName.local, elementName.prefix)
                                         .also { lastToken = it }
                                 }
                             }
@@ -204,7 +201,7 @@ internal class XmlLexer(private val source: String) {
                         }
                         else -> {
                             val qname = readAttributeName()
-                            Token.AttributeName(qname.name, qname.namespace)
+                            Token.AttributeName(qname.local, qname.prefix)
                         }
                     }.also { lastToken = it }
                 }
@@ -224,13 +221,13 @@ internal class XmlLexer(private val source: String) {
     sealed interface Token {
         object None : Token
 
-        data class ElementStart(val name: String, val namespace: String? = null) : Token
+        data class ElementStart(val name: String, val prefix: String? = null) : Token
 
         object ElementStartEnd : Token
 
-        data class ElementEnd(val name: String? = null, val namespace: String? = null) : Token
+        data class ElementEnd(val name: String? = null, val prefix: String? = null) : Token
 
-        data class AttributeName(val name: String, val namespace: String? = null) : Token
+        data class AttributeName(val name: String, val prefix: String? = null) : Token
 
         data class AttributeValue(val value: String) : Token
 
