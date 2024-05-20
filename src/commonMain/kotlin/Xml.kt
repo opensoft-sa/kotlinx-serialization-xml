@@ -5,7 +5,6 @@ import kotlinx.serialization.*
 import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
 import pt.opensoft.kotlinx.serialization.xml.internal.*
-import pt.opensoft.kotlinx.serialization.xml.internal.Composer
 import pt.opensoft.kotlinx.serialization.xml.internal.StreamingXmlDecoder
 import pt.opensoft.kotlinx.serialization.xml.internal.StreamingXmlEncoder
 import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer
@@ -41,10 +40,9 @@ public sealed class Xml(
      * @throws [SerializationException] if the given value cannot be serialized to XML.
      */
     override fun <T> encodeToString(serializer: SerializationStrategy<T>, value: T): String {
-        val composer = Composer(this).appendProlog(configuration.prolog)
-        val encoder = StreamingXmlEncoder(this, composer)
+        val encoder = StreamingXmlEncoder(this)
         serializer.serialize(encoder, value)
-        return composer.toString()
+        return encoder.toString()
     }
 
     /**
