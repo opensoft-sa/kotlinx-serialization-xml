@@ -1,9 +1,12 @@
 package pt.opensoft.kotlinx.serialization.xml.internal
 
-internal class XmlLexer(private val source: String) {
-    var position = 0
+import pt.opensoft.kotlinx.serialization.xml.NO_NAMESPACE_PREFIX
+import pt.opensoft.kotlinx.serialization.xml.UnexpectedXmlTokenException
 
-    private var lastToken: Token = Token.None
+internal class XmlLexer(private val source: String) {
+    private var position = 0
+
+    private var lastToken: XmlToken? = null
 
     fun copy(): XmlLexer {
         val other = XmlLexer(source)
@@ -12,11 +15,11 @@ internal class XmlLexer(private val source: String) {
         return other
     }
 
-    fun next(): Char? = if (position < source.length) source[position++] else null
+    private fun next(): Char? = if (position < source.length) source[position++] else null
 
-    fun peek(): Char? = if (position < source.length) source[position] else null
+    private fun peek(): Char? = if (position < source.length) source.getOrNull(position) else null
 
-    fun skipToChar(char: Char) {
+    private fun skipToChar(char: Char) {
         var c = next()
         while (c != null) {
             when (c) {
@@ -26,7 +29,7 @@ internal class XmlLexer(private val source: String) {
         }
     }
 
-    fun skipWhitespace() {
+    private fun skipWhitespace() {
         var c = peek()
         while (c != null) {
             when (c) {
@@ -42,18 +45,95 @@ internal class XmlLexer(private val source: String) {
         }
     }
 
-    fun requireChar(char: Char) {
+    private fun requireChar(char: Char) {
         skipWhitespace()
         require(peek() != null) { "Unexpected end of file" }
-        require(peek() == char) { "Unexpected token ${peek()}, expecting $char" }
+        require(peek() == char) { "Unexpected token '${peek()}', expecting '$char'" }
     }
 
-    data class QName(val local: String, val prefix: String? = null)
+    fun readNextToken(): XmlToken? {
+        when (lastToken) {
+            is XmlToken.DocumentEnd -> return lastToken
+            null,
+            XmlToken.ElementStartEnd,
+            is XmlToken.ElementEnd,
+            is XmlToken.Text -> {
+                while (true) {
+                    skipWhitespace()
+                    when (peek()) {
+                        null -> return XmlToken.DocumentEnd.also { lastToken = it }
+                        '<' -> {
+                            next() // consume the bracket
+                            when (peek()) {
+                                '!',
+                                '?' -> {
+                                    skipToChar('>')
+                                }
+                                '/' -> {
+                                    next() // consume the slash
+                                    val elementName = readElementName()
+                                    skipWhitespace()
+                                    next() // Consume the closing bracket
+                                    return XmlToken.ElementEnd(elementName.name, elementName.prefix)
+                                        .also { lastToken = it }
+                                }
+                                else -> {
+                                    val elementName = readElementName()
+                                    return XmlToken.ElementStart(
+                                            elementName.name,
+                                            elementName.prefix
+                                        )
+                                        .also { lastToken = it }
+                                }
+                            }
+                        }
+                        '/' -> {
+                            skipToChar('>')
+                            return XmlToken.ElementEnd()
+                        }
+                        else -> {
+                            return XmlToken.Text(readText()).also { lastToken = it }
+                        }
+                    }
+                }
+            }
+            is XmlToken.ElementStart,
+            is XmlToken.AttributeValue,
+            is XmlToken.AttributeEnd -> {
+                while (true) {
+                    skipWhitespace()
+                    return when (peek()) {
+                        '/' -> {
+                            skipToChar('>')
+                            XmlToken.ElementEnd()
+                        }
+                        '>' -> {
+                            next() // consume the bracket
+                            XmlToken.ElementStartEnd
+                        }
+                        else -> {
+                            val qname = readAttributeName()
+                            XmlToken.AttributeStart(qname.name, qname.prefix)
+                        }
+                    }.also { lastToken = it }
+                }
+            }
+            is XmlToken.AttributeStart -> {
+                skipWhitespace()
+                return if (peek() == '=') {
+                    position++
+                    XmlToken.AttributeValue(readAttributeValue()).also { lastToken = it }
+                } else {
+                    XmlToken.AttributeEnd.also { lastToken = it }
+                }
+            }
+        }
+    }
 
-    private fun readElementName(): QName {
+    private fun readElementName(): PrefixedName {
         skipWhitespace()
         var start = position
-        var prefix: String? = null
+        var prefix: String = NO_NAMESPACE_PREFIX
         while (true) {
             when (next()) {
                 null -> throw IllegalArgumentException("Unexpected end of file")
@@ -69,19 +149,18 @@ internal class XmlLexer(private val source: String) {
                 '/' -> break
             }
         }
-        val local = source.substring(start, --position)
-        return QName(local, prefix)
+        return PrefixedName(source.substring(start, --position), prefix)
     }
 
-    private fun readAttributeName(): QName {
+    private fun readAttributeName(): PrefixedName {
         skipWhitespace()
         var start = position
-        var namespace: String? = null
+        var prefix: String = NO_NAMESPACE_PREFIX
         while (true) {
             when (peek()) {
                 null -> throw IllegalArgumentException("Unexpected end of file")
                 ':' -> {
-                    namespace = source.substring(start, position++)
+                    prefix = source.substring(start, position++)
                     start = position
                 }
                 '\r',
@@ -92,8 +171,7 @@ internal class XmlLexer(private val source: String) {
                 else -> position++
             }
         }
-        val name = source.substring(start, position)
-        return QName(name, namespace)
+        return PrefixedName(source.substring(start, position), prefix)
     }
 
     private fun readAttributeValue(): String {
@@ -110,7 +188,7 @@ internal class XmlLexer(private val source: String) {
             when (c) {
                 null -> throw IllegalArgumentException("Unexpected end of file")
                 '<',
-                '&' -> throw IllegalArgumentException("Invalid character in attribute name: $c")
+                '&' -> throw IllegalArgumentException("Invalid character in attribute name: '$c'")
                 quote -> break
                 else -> c = next()
             }
@@ -118,7 +196,7 @@ internal class XmlLexer(private val source: String) {
         return source.substring(s, position - 1)
     }
 
-    fun readText(): String {
+    private fun readText(): String {
         skipWhitespace()
         val text = StringBuilder()
         while (true) {
@@ -141,100 +219,9 @@ internal class XmlLexer(private val source: String) {
         return text.toString().trim()
     }
 
-    fun readNextToken(): Token {
-        when (lastToken) {
-            is Token.DocumentEnd -> return lastToken
-            is Token.None,
-            Token.ElementStartEnd,
-            is Token.ElementEnd,
-            is Token.Text -> {
-                skipWhitespace()
-                while (true) {
-                    skipWhitespace()
-                    when (peek()) {
-                        null -> return Token.DocumentEnd.also { lastToken = it }
-                        '<' -> {
-                            next() // consume the bracket
-                            when (peek()) {
-                                '!',
-                                '?' -> {
-                                    skipToChar('>')
-                                }
-                                '/' -> {
-                                    next() // consume the slash
-                                    val elementName = readElementName()
-                                    skipWhitespace()
-                                    next() // Consume the closing bracket
-                                    return Token.ElementEnd(elementName.local, elementName.prefix)
-                                        .also { lastToken = it }
-                                }
-                                else -> {
-                                    val elementName = readElementName()
-                                    return Token.ElementStart(elementName.local, elementName.prefix)
-                                        .also { lastToken = it }
-                                }
-                            }
-                        }
-                        '/' -> {
-                            skipToChar('>')
-                            return Token.ElementEnd()
-                        }
-                        else -> {
-                            return Token.Text(readText()).also { lastToken = it }
-                        }
-                    }
-                }
-            }
-            is Token.ElementStart,
-            is Token.AttributeValue,
-            is Token.AttributeEnd -> {
-                while (true) {
-                    skipWhitespace()
-                    return when (peek()) {
-                        '/' -> {
-                            skipToChar('>')
-                            Token.ElementEnd()
-                        }
-                        '>' -> {
-                            next() // consume the bracket
-                            Token.ElementStartEnd
-                        }
-                        else -> {
-                            val qname = readAttributeName()
-                            Token.AttributeName(qname.local, qname.prefix)
-                        }
-                    }.also { lastToken = it }
-                }
-            }
-            is Token.AttributeName -> {
-                skipWhitespace()
-                return if (peek() == '=') {
-                    position++
-                    Token.AttributeValue(readAttributeValue()).also { lastToken = it }
-                } else {
-                    Token.AttributeEnd.also { lastToken = it }
-                }
-            }
-        }
-    }
-
-    sealed interface Token {
-        object None : Token
-
-        data class ElementStart(val name: String, val prefix: String? = null) : Token
-
-        object ElementStartEnd : Token
-
-        data class ElementEnd(val name: String? = null, val prefix: String? = null) : Token
-
-        data class AttributeName(val name: String, val prefix: String? = null) : Token
-
-        data class AttributeValue(val value: String) : Token
-
-        object AttributeEnd : Token
-
-        data class Text(val content: String) : Token
-
-        object DocumentEnd : Token
-    }
+    private fun throwUnexpectedToken(expected: String): Nothing =
+        throw UnexpectedXmlTokenException(
+            position,
+            "expected '$expected' but found '${peek() ?: "EOF"}'"
+        )
 }

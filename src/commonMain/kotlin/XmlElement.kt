@@ -1,11 +1,11 @@
 package pt.opensoft.kotlinx.serialization.xml
 
 import kotlinx.serialization.Serializable
-import pt.opensoft.kotlinx.serialization.xml.internal.Composer
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlComposer
 
 /** Object allowed as content of an XML element. */
 public sealed class XmlContent {
-    internal abstract fun composeClarkNotation(composer: Composer)
+    internal abstract fun composeClarkNotation(composer: XmlComposer)
 }
 
 /**
@@ -69,7 +69,7 @@ public class XmlElement(
         prettyPrintIndent: String = DEFAULT_PRETTY_PRINT_INDENT
     ): String {
         val composer =
-            Composer(
+            XmlComposer(
                 Xml {
                     this.prettyPrint = prettyPrint
                     this.prettyPrintIndent = prettyPrintIndent
@@ -79,7 +79,7 @@ public class XmlElement(
         return composer.toString()
     }
 
-    override fun composeClarkNotation(composer: Composer) {
+    override fun composeClarkNotation(composer: XmlComposer) {
         val namespaceNotation = if (namespace.isNotEmpty()) "{$namespace}" else ""
         composer.startElement(NO_NAMESPACE_PREFIX, namespaceNotation + name)
         for (attribute in attributes) {
@@ -115,6 +115,49 @@ public class XmlElement(
         return result
     }
 
+    /**
+     * Returns a sequence over all elements in this element's content matching the provided [name]
+     * and [namespace].
+     *
+     * When [namespace] is `null` (the default), namespaces are ignored when finding.
+     */
+    public fun findAll(name: String, namespace: String? = null): Sequence<XmlElement> = sequence {
+        for (item in content) {
+            if (item is XmlElement) {
+                if (name == item.name && (namespace == null || namespace == item.namespace)) {
+                    yield(item)
+                }
+                yieldAll(item.findAll(name, namespace))
+            }
+        }
+    }
+
+    /**
+     * Finds the first element in this element's content matching the provided [name] and
+     * [namespace]. Returns `null` if no such element was found.
+     *
+     * When [namespace] is `null` (the default), namespaces are ignored when finding.
+     */
+    public fun find(name: String, namespace: String? = null): XmlElement? =
+        findAll(name, namespace).firstOrNull()
+
+    /**
+     * Returns the value of the attribute with the provided [name] and [namespace], or `null` if no
+     * such attribute exists.
+     */
+    public fun attribute(name: String, namespace: String = NO_NAMESPACE_URI): String? =
+        attributes.find { it.name == name && it.namespace == namespace }?.value
+
+    /** Returns a concatenation of all text nodes that are direct children of this element. */
+    public val text: String
+        get() = buildString {
+            for (item in content) {
+                if (item is Text) {
+                    append(item.content)
+                }
+            }
+        }
+
     /** Attribute of an XML element. */
     public class Attribute(
         public val name: String,
@@ -138,12 +181,12 @@ public class XmlElement(
 
         /** Prints the XML attribute in clark-notation. */
         override fun toString(): String {
-            val composer = Composer()
+            val composer = XmlComposer()
             composeClarkNotation(composer)
             return composer.toString().trimStart()
         }
 
-        internal fun composeClarkNotation(composer: Composer) {
+        internal fun composeClarkNotation(composer: XmlComposer) {
             val namespaceNotation = if (namespace.isNotEmpty()) "{$namespace}" else ""
             composer.appendAttribute(NO_NAMESPACE_PREFIX, namespaceNotation + name, value)
         }
@@ -170,12 +213,12 @@ public class XmlElement(
     public class Text(public val content: String) : XmlContent() {
         /** Prints the XML text content, escaped if necessary. */
         override fun toString(): String {
-            val composer = Composer()
+            val composer = XmlComposer()
             composeClarkNotation(composer)
             return composer.toString()
         }
 
-        override fun composeClarkNotation(composer: Composer) {
+        override fun composeClarkNotation(composer: XmlComposer) {
             composer.appendText(content)
         }
 

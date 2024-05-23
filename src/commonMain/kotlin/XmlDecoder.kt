@@ -2,15 +2,19 @@ package pt.opensoft.kotlinx.serialization.xml
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.encoding.Decoder
 
 /**
  * Decoder used by [Xml] during deserialization. This interface can be used to inject desired
  * behaviour into a serialization process of [Xml].
  */
-public interface XmlDecoder : Decoder {
+public interface XmlDecoder : Decoder, CompositeDecoder {
     /** An instance of the current [Xml]. */
     public val xml: Xml
+
+    /** Namespaces currently in scope. Mapping of prefixes to their respective URIs. */
+    public val namespaces: Map<String, String>
 
     /**
      * Decodes the next element in the current input as [XmlElement]. The type of the decoded

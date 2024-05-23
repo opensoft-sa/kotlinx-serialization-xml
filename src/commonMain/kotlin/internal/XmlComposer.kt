@@ -4,46 +4,49 @@ import pt.opensoft.kotlinx.serialization.xml.Xml
 
 private const val DEFAULT_SB_CAPACITY = 128
 
-/** Creates a composer from an [Xml] instance. */
-internal fun Composer(xml: Xml = Xml.Default): Composer {
+/** Creates an [XmlComposer] from an [Xml] instance. */
+internal fun XmlComposer(xml: Xml = Xml.Default): XmlComposer {
     val sb = StringBuilder(DEFAULT_SB_CAPACITY)
-    return if (xml.configuration.prettyPrint)
-        ComposerWithPrettyPrint(sb, xml.configuration.prettyPrintIndent)
-    else Composer(sb)
+    val composer =
+        if (xml.configuration.prettyPrint)
+            PrettyXmlComposer(sb, xml.configuration.prettyPrintIndent)
+        else XmlComposer(sb)
+    composer.appendProlog(xml.configuration.prolog)
+    return composer
 }
 
 /**
  * Creates a composer to compose the content of an element independently from its parent element.
  */
-internal fun contentComposer(from: Composer): Composer {
+internal fun contentXmlComposer(from: XmlComposer): XmlComposer {
     val sb = StringBuilder(DEFAULT_SB_CAPACITY)
-    return if (from is ComposerWithPrettyPrint) ComposerWithPrettyPrint(sb, from) else Composer(sb)
+    return if (from is PrettyXmlComposer) PrettyXmlComposer(sb, from) else XmlComposer(sb)
 }
 
-internal open class Composer(protected val sb: StringBuilder) {
+internal open class XmlComposer(protected val sb: StringBuilder) {
     fun isEmpty() = sb.isEmpty()
 
-    fun appendProlog(prolog: String?): Composer = also {
+    fun appendProlog(prolog: String?): XmlComposer = also {
         prolog?.let { sb.append(prolog).appendLine() }
     }
 
-    open fun indent(): Composer = this
+    open fun indent(): XmlComposer = this
 
-    open fun unIndent(): Composer = this
+    open fun unIndent(): XmlComposer = this
 
-    open fun startElement(prefix: String, name: String): Composer = also {
+    open fun startElement(prefix: String, name: String): XmlComposer = also {
         sb.append("<").appendPrefixedName(prefix, name)
     }
 
-    open fun endElementStart(): Composer = also { sb.append('>') }
+    open fun endElementStart(): XmlComposer = also { sb.append('>') }
 
-    open fun endElement(prefix: String, name: String): Composer = also {
+    open fun endElement(prefix: String, name: String): XmlComposer = also {
         sb.append("</").appendPrefixedName(prefix, name).append('>')
     }
 
-    open fun selfEndElement(): Composer = also { sb.append("/>") }
+    open fun selfEndElement(): XmlComposer = also { sb.append("/>") }
 
-    open fun appendAttribute(prefix: String, name: String, value: String): Composer = also {
+    open fun appendAttribute(prefix: String, name: String, value: String): XmlComposer = also {
         sb.append(' ')
             .appendPrefixedName(prefix, name)
             .append('=')
@@ -52,9 +55,9 @@ internal open class Composer(protected val sb: StringBuilder) {
             .append('"')
     }
 
-    open fun appendText(value: String): Composer = also { sb.appendXmlText(value) }
+    open fun appendText(value: String): XmlComposer = also { sb.appendXmlText(value) }
 
-    open fun appendComposer(composer: Composer): Composer = also { sb.append(composer.sb) }
+    open fun appendComposer(composer: XmlComposer): XmlComposer = also { sb.append(composer.sb) }
 
     override fun toString() = sb.toString()
 
@@ -110,29 +113,30 @@ internal open class Composer(protected val sb: StringBuilder) {
     }
 }
 
-internal class ComposerWithPrettyPrint(
+/** [XmlComposer] for composing pretty printed XML. */
+internal class PrettyXmlComposer(
     sb: StringBuilder,
     private val indent: String,
     private var level: Int = 0,
     private var prevContentWasText: Boolean = false,
-) : Composer(sb) {
+) : XmlComposer(sb) {
     internal constructor(
         sb: StringBuilder,
-        composer: ComposerWithPrettyPrint
+        composer: PrettyXmlComposer
     ) : this(sb, composer.indent, composer.level + 1)
 
     override fun indent() = also { level += 1 }
 
     override fun unIndent() = also { level -= 1 }
 
-    override fun startElement(prefix: String, name: String): Composer {
+    override fun startElement(prefix: String, name: String): XmlComposer {
         if (level != 0 && !prevContentWasText) {
             appendLine()
         }
         return super.startElement(prefix, name)
     }
 
-    override fun endElement(prefix: String, name: String): Composer {
+    override fun endElement(prefix: String, name: String): XmlComposer {
         if (!prevContentWasText) {
             appendLine()
         } else {
@@ -141,20 +145,20 @@ internal class ComposerWithPrettyPrint(
         return super.endElement(prefix, name)
     }
 
-    override fun selfEndElement(): Composer {
+    override fun selfEndElement(): XmlComposer {
         sb.append(' ')
         return super.selfEndElement()
     }
 
-    override fun appendText(value: String): Composer {
+    override fun appendText(value: String): XmlComposer {
         prevContentWasText = true
         return super.appendText(value)
     }
 
-    override fun appendComposer(composer: Composer): Composer {
-        prevContentWasText = (composer as ComposerWithPrettyPrint).prevContentWasText
+    override fun appendComposer(composer: XmlComposer): XmlComposer {
+        prevContentWasText = (composer as PrettyXmlComposer).prevContentWasText
         return super.appendComposer(composer)
     }
 
-    private fun appendLine(): Composer = also { sb.appendLine().append(indent.repeat(level)) }
+    private fun appendLine(): XmlComposer = also { sb.appendLine().append(indent.repeat(level)) }
 }

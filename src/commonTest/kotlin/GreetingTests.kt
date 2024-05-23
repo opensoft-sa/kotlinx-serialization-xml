@@ -11,9 +11,6 @@ enum class GreetingType {
 }
 
 @Serializable
-data class Greetings(@XmlName("greeting") val greetings: List<Greeting> = emptyList())
-
-@Serializable
 data class Greeting(
     @XmlAttribute val from: String,
     @XmlAttribute val to: String,
@@ -53,6 +50,9 @@ class GreetingTest : SerializationTest<Greeting>() {
             addXmlElement("ps") { addText("Bye") }
         }
 }
+
+@Serializable
+data class Greetings(@XmlName("greeting") val greetings: List<Greeting> = emptyList())
 
 class GreetingsTest : SerializationTest<Greetings>() {
     override val config: Xml = Xml(defaultTestConfig) { encodeDefaults = false }

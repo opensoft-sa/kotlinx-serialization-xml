@@ -51,8 +51,8 @@ class XmlDecoderTest {
                 .trimIndent()
         try {
             Xml.decodeFromString<NamespacedGreetings>(xml)
-            fail("Expected UndefinedNamespaceException.")
-        } catch (e: UndefinedNamespaceException) {
+            fail("Expected UndefinedNamespaceException")
+        } catch (e: UndeclaredNamespacePrefixException) {
             // success
         }
     }

@@ -2,8 +2,9 @@ package pt.opensoft.kotlinx.serialization.xml.internal
 
 import pt.opensoft.kotlinx.serialization.xml.*
 
+/** [XmlEncoder] for encoding values to an [XmlElement], accessible via [rootElement]. */
 internal class TreeXmlEncoder(
-    override val xml: Xml,
+    xml: Xml,
     namespaces: Map<String, String> = GLOBAL_NAMESPACES,
     parentEncoder: TreeXmlEncoder? = null,
     private val parentElement: XmlElement? = null
@@ -20,10 +21,10 @@ internal class TreeXmlEncoder(
 
     override fun encodeTransformedXmlElement(element: XmlElement) = addElementToParent(element)
 
-    override fun flatStructureContentEncoder(): TreeXmlEncoder =
+    override fun flatStructureEncoder(): TreeXmlEncoder =
         TreeXmlEncoder(xml, namespaces, this, parentElement)
 
-    override fun structureContentEncoder(
+    override fun beginStructure(
         name: String,
         namespace: String,
         namespaceDeclarations: List<XmlElement.Attribute>,
@@ -32,12 +33,6 @@ internal class TreeXmlEncoder(
         val element =
             XmlElement(name, namespace, namespaceDeclarations.toMutableSet(), mutableListOf())
         addElementToParent(element)
-        return TreeXmlEncoder(xml, namespaces, this, element)
-    }
-
-    override fun wrappedElementContentEncoder(name: String, namespace: String): TreeXmlEncoder {
-        val element = XmlElement(name, namespace, mutableSetOf(), mutableListOf())
-        parentElement!!.content as MutableList += element
         return TreeXmlEncoder(xml, namespaces, this, element)
     }
 

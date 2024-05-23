@@ -5,7 +5,6 @@ import kotlinx.serialization.*
 import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
 import pt.opensoft.kotlinx.serialization.xml.internal.*
-import pt.opensoft.kotlinx.serialization.xml.internal.StreamingXmlDecoder
 import pt.opensoft.kotlinx.serialization.xml.internal.StreamingXmlEncoder
 import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer
 
@@ -40,9 +39,10 @@ public sealed class Xml(
      * @throws [SerializationException] if the given value cannot be serialized to XML.
      */
     override fun <T> encodeToString(serializer: SerializationStrategy<T>, value: T): String {
-        val encoder = StreamingXmlEncoder(this)
+        val composer = XmlComposer(this)
+        val encoder = StreamingXmlEncoder(this, composer)
         serializer.serialize(encoder, value)
-        return encoder.toString()
+        return composer.toString()
     }
 
     /**
@@ -63,10 +63,8 @@ public sealed class Xml(
      * @throws [IllegalArgumentException] if the decoded input cannot be represented as a valid
      *   instance of type [T].
      */
-    override fun <T> decodeFromString(deserializer: DeserializationStrategy<T>, string: String): T {
-        val input = StreamingXmlDecoder(this, XmlLexer(string))
-        return input.decodeSerializableValue(deserializer)
-    }
+    override fun <T> decodeFromString(deserializer: DeserializationStrategy<T>, string: String): T =
+        StreamingXmlDecoder(this, XmlLexer(string)).decodeSerializableValue(deserializer)
 
     /**
      * Serializes the given [value] into an equivalent [XmlElement] using the given [serializer]
@@ -165,10 +163,23 @@ public class XmlBuilder internal constructor(xml: Xml) {
 
     /**
      * Enables structured objects to be serialized as map keys by changing the serialized form of
-     * the map from a list of values with key attributes like `<v1 key=k1/><v2 key=k2/>` to a flat
-     * list of elements like `<k1/><v1/><k2/><v2/>`. `false` by default.
+     * the map from a list of values with key attributes like:
+     * ```xml
+     * <el key="k1">v1</el>
+     * <el key="k2">v2</el>
+     * ```
      *
-     * **NOTE**: Not yet implemented.
+     * to a flat list of elements like:
+     * ```xml
+     * <el>k1</el>
+     * <el>v1</el>
+     * <el>k2</el>
+     * <el>v2</el>
+     * ```
+     *
+     * `false` by default.
+     *
+     * **NOTE**: Map serialisation is not yet implemented.
      */
     public var allowStructuredMapKeys: Boolean = xml.configuration.allowStructuredMapKeys
 

@@ -6,34 +6,25 @@ import pt.opensoft.kotlinx.serialization.xml.internal.getAttributeNamespacePrefi
 import pt.opensoft.kotlinx.serialization.xml.internal.getElementNamespacePrefix
 
 /** Function used to encode an XML element. */
-internal fun Composer.encodeXmlElement(
+internal fun XmlComposer.encodeXmlElement(
     element: XmlElement,
     namespaces: Map<String, String> = GLOBAL_NAMESPACES
 ) {
-    val namespacesInScope = namespaces.toMutableMap()
-    // Read namespace declarations in the element attributes and add them to the namespaces in
-    // scope
-    for (attribute in element.attributes) {
-        if (attribute.name == XMLNS_NAMESPACE_PREFIX && attribute.namespace == NO_NAMESPACE_URI) {
-            namespacesInScope[NO_NAMESPACE_PREFIX] = attribute.value
-        } else if (attribute.namespace == XMLNS_NAMESPACE_URI) {
-            namespacesInScope[attribute.name] = attribute.value
-        }
-    }
+    val elementNamespaces = element.collectNamespaces(namespaces)
 
     // Keep track of extra namespace declarations that we auto-generate due to the element or
     // its attributes having namespaces that haven't been declared
     val autoDeclarations = mutableSetOf<XmlElement.Attribute>()
     val addAttribute: (XmlElement.Attribute) -> Unit = { autoDeclarations += it }
 
-    declareNamespaceIfNeeded(element.namespace, "", false, namespacesInScope, addAttribute)
-    val prefix = getElementNamespacePrefix(element.namespace, namespacesInScope)
+    declareNamespaceIfNeeded(element.namespace, "", false, elementNamespaces, addAttribute)
+    val prefix = getElementNamespacePrefix(element.namespace, elementNamespaces)
     startElement(prefix, element.name)
 
     for (attribute in element.attributes) {
-        declareNamespaceIfNeeded(attribute.namespace, "", true, namespacesInScope, addAttribute)
+        declareNamespaceIfNeeded(attribute.namespace, "", true, elementNamespaces, addAttribute)
         appendAttribute(
-            getAttributeNamespacePrefix(attribute.namespace, namespacesInScope),
+            getAttributeNamespacePrefix(attribute.namespace, elementNamespaces),
             attribute.name,
             attribute.value
         )
@@ -41,7 +32,7 @@ internal fun Composer.encodeXmlElement(
 
     for (attribute in autoDeclarations) {
         appendAttribute(
-            getAttributeNamespacePrefix(attribute.namespace, namespacesInScope),
+            getAttributeNamespacePrefix(attribute.namespace, elementNamespaces),
             attribute.name,
             attribute.value
         )
@@ -54,7 +45,7 @@ internal fun Composer.encodeXmlElement(
         for (item in element.content) {
             when (item) {
                 is Text -> appendText(item.content)
-                is XmlElement -> encodeXmlElement(item, namespacesInScope)
+                is XmlElement -> encodeXmlElement(item, elementNamespaces)
             }
         }
         unIndent().endElement(prefix, element.name)

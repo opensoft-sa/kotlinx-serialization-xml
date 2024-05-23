@@ -2,6 +2,7 @@ package pt.opensoft.kotlinx.serialization.xml.internal
 
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.*
+import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.modules.SerializersModule
 import pt.opensoft.kotlinx.serialization.xml.*
 
@@ -47,6 +48,55 @@ internal fun SerialDescriptor.isElementXmlText(index: Int): Boolean =
 internal fun SerialDescriptor.isElementXmlWrap(index: Int): Boolean =
     getElementAnnotations(index).any { it is XmlWrap }
 
+/**
+ * Index of the element encoded as an XML element with the provided [name] and [namespace], given
+ * the [namespaces] in scope. Returns [UNKNOWN_NAME] if no such element exists.
+ */
+internal fun SerialDescriptor.getElementXmlElementIndex(
+    name: String,
+    namespace: String,
+    defaultNamespace: String
+): Int {
+    for (i in 0 until elementsCount) {
+        if (
+            !isElementXmlAttribute(i) &&
+                !isElementXmlText(i) &&
+                name == getElementXmlName(i) &&
+                namespace == (getElementXmlNamespace(i)?.uri ?: defaultNamespace)
+        ) {
+            return i
+        }
+    }
+    return CompositeDecoder.UNKNOWN_NAME
+}
+
+/**
+ * Index of the element encoded as an XML attribute with the provided [name] and [namespace].
+ * Returns [UNKNOWN_NAME] if no such element exists.
+ */
+internal fun SerialDescriptor.getElementXmlAttributeIndex(name: String, namespace: String): Int {
+    for (i in 0 until elementsCount) {
+        if (
+            isElementXmlAttribute(i) &&
+                name == getElementXmlName(i) &&
+                namespace == (getElementXmlNamespace(i)?.uri ?: NO_NAMESPACE_URI)
+        ) {
+            return i
+        }
+    }
+    return CompositeDecoder.UNKNOWN_NAME
+}
+
+/** Index of the element encoded as text. Returns [UNKNOWN_NAME] if no such element exists. */
+internal fun SerialDescriptor.getElementXmlTextIndex(): Int {
+    for (i in 0 until elementsCount) {
+        if (isElementXmlText(i)) {
+            return i
+        }
+    }
+    return CompositeDecoder.UNKNOWN_NAME
+}
+
 /** Validates the annotations of an XML element. */
 internal fun SerialDescriptor.validateXmlAnnotations() {
     val name = getXmlName()
@@ -61,21 +111,21 @@ internal fun SerialDescriptor.validateXmlAnnotations() {
             throw XmlDescriptorException(
                 this,
                 "The prefix '$XML_NAMESPACE_PREFIX' must not be bound to a namespace name other " +
-                    "than '$XML_NAMESPACE_URI' (see https://www.w3.org/TR/xml-names/#ns-decl)."
+                    "than '$XML_NAMESPACE_URI' (see https://www.w3.org/TR/xml-names/#ns-decl)"
             )
         }
         if (declaration.uri == XML_NAMESPACE_URI && declaration.prefix != XML_NAMESPACE_PREFIX) {
             throw XmlDescriptorException(
                 this,
                 "No prefixes other than '$XML_NAMESPACE_PREFIX' may be bound to " +
-                    "'$XML_NAMESPACE_URI' (see https://www.w3.org/TR/xml-names/#ns-decl)."
+                    "'$XML_NAMESPACE_URI' (see https://www.w3.org/TR/xml-names/#ns-decl)"
             )
         }
         if (declaration.prefix in namespaces && namespaces[declaration.prefix] != declaration.uri) {
             throw XmlDescriptorException(
                 this,
                 "There cannot be multiple namespace declarations with the same prefix " +
-                    "'${declaration.prefix}'."
+                    "'${declaration.prefix}'"
             )
         }
         namespaces[declaration.prefix] = declaration.uri
@@ -100,14 +150,14 @@ internal fun SerialDescriptor.validateElementXmlAnnotations() {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlAttribute " +
-                        "and @XmlText annotations."
+                        "and @XmlText annotations"
                 )
             }
             if (isWrap) {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlAttribute " +
-                        "and @XmlWrap annotations."
+                        "and @XmlWrap annotations"
                 )
             }
         }
@@ -116,27 +166,27 @@ internal fun SerialDescriptor.validateElementXmlAnnotations() {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlText and " +
-                        "@XmlName annotations."
+                        "@XmlName annotations"
                 )
             }
             if (hasNamespace) {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlText " +
-                        "and @XmlNamespace annotations."
+                        "and @XmlNamespace annotations"
                 )
             }
             if (isWrap) {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have both @XmlText and @XmlWrap " +
-                        "annotations."
+                        "annotations"
                 )
             }
             if (hasText) {
                 throw XmlDescriptorException(
                     this,
-                    "No more than one property can be annotated with @XmlText."
+                    "No more than one property can be annotated with @XmlText"
                 )
             }
             hasText = true
@@ -146,14 +196,14 @@ internal fun SerialDescriptor.validateElementXmlAnnotations() {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have @XmlWrappedName while not " +
-                        "having the @XmlWrap annotation."
+                        "having the @XmlWrap annotation"
                 )
             }
             if (hasWrappedNamespace) {
                 throw XmlDescriptorException(
                     this,
                     "Property '${getElementName(i)}' cannot have @XmlWrappedNamespace while not " +
-                        "having the @XmlWrap annotation."
+                        "having the @XmlWrap annotation"
                 )
             }
         }

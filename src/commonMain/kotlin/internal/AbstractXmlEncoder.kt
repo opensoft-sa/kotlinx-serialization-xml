@@ -8,10 +8,13 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.modules.SerializersModule
 import pt.opensoft.kotlinx.serialization.xml.*
 
+/**
+ * Abstract XML encoder providing the base functionality for both streaming and tree XML encoders.
+ */
 internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncoder>>(
     override val xml: Xml,
-    override val namespaces: Map<String, String> = GLOBAL_NAMESPACES,
-    protected val parentEncoder: TEncoder? = null
+    override val namespaces: Map<String, String>,
+    protected val parentEncoder: TEncoder?
 ) : XmlEncoder {
     final override val serializersModule: SerializersModule
         get() = xml.serializersModule
@@ -60,40 +63,29 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
     }
 
     /** Returns the encoder used to encode the content of a flat structure. */
-    protected abstract fun flatStructureContentEncoder(): TEncoder
+    protected abstract fun flatStructureEncoder(): TEncoder
 
     /**
-     * Returns the encoder used to encode the content of an XML element representing a non-flat
-     * structure.
+     * Encodes the beginning of the XML element representing a non-flat structure and returns an
+     * encoder used to encode its content.
      *
      * Provided are the [name] and [namespace] of the XML element being encoded, the list of
      * [namespace declarations][namespaceDeclarations] that need to be declared in the XML element,
      * and the [namespaces] currently in scope.
      */
-    protected abstract fun structureContentEncoder(
-        name: String,
-        namespace: String,
-        namespaceDeclarations: List<XmlElement.Attribute>,
-        namespaces: Map<String, String>
-    ): TEncoder
-
-    /**
-     * Encodes the beginning of the nested non-flat structure in a serialized form.
-     *
-     * Provided are the [name] and [namespace] of the XML element being encoded, the list of
-     * [namespace declarations][namespaceDeclarations] that need to be declared in the XML element,
-     * and the [namespaces] currently in scope.
-     */
-    protected open fun beginStructure(
+    protected abstract fun beginStructure(
         name: String,
         namespace: String,
         namespaceDeclarations: List<XmlElement.Attribute>,
         namespaces: Map<String, String>,
-    ) {}
+    ): TEncoder
 
     final override fun beginStructure(descriptor: SerialDescriptor): TEncoder {
+        descriptor.validateXmlAnnotations()
+        descriptor.validateElementXmlAnnotations()
+
         if (flattenStructure) {
-            val contentEncoder = flatStructureContentEncoder()
+            val contentEncoder = flatStructureEncoder()
             contentEncoder.elementDescriptor = elementDescriptor
             contentEncoder.elementIndex = elementIndex
             contentEncoder.wrappedElementDescriptor = wrappedElementDescriptor
@@ -101,17 +93,14 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
             return contentEncoder
         }
 
-        descriptor.validateXmlAnnotations()
-        descriptor.validateElementXmlAnnotations()
-
-        val namespacesInScope = namespaces.toMutableMap()
+        val namespaces = namespaces.toMutableMap()
         val namespaceDeclarations = mutableListOf<XmlElement.Attribute>()
         val declareNamespace: (XmlElement.Attribute) -> Unit = { namespaceDeclarations += it }
 
         // Declare specified namespaces
         declareSpecifiedNamespaces(
             descriptor.getXmlNamespaceDeclarations(),
-            namespacesInScope,
+            namespaces,
             declareNamespace
         )
 
@@ -132,21 +121,18 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
                     ?.preferredPrefix
                     ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.preferredPrefix
                     ?: descriptor.getXmlNamespace()?.preferredPrefix,
-                namespacesInScope,
+                namespaces,
                 declareNamespace
             )
 
         // Declare children namespaces not in scope
-        declareChildrenNamespaces(descriptor, namespacesInScope, declareNamespace)
+        declareChildrenNamespaces(descriptor, namespaces, declareNamespace)
 
-        val contentEncoder =
-            structureContentEncoder(name, namespace, namespaceDeclarations, namespacesInScope)
-        beginStructure(name, namespace, namespaceDeclarations, namespacesInScope)
-        return contentEncoder
+        return beginStructure(name, namespace, namespaceDeclarations, namespaces)
     }
 
     /**
-     * Denotes the end of the structure associated with current encoder.
+     * Encodes the ending of the XML element representing a non-flat structure.
      *
      * Provided are the [name] and [namespace] of the XML element being encoded.
      */
@@ -177,26 +163,6 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
         endStructure(name, namespace)
     }
 
-    /**
-     * Returns the encoder used to encode the content of an XML element wrapping a serialized
-     * element.
-     *
-     * Provided are the [name] and [namespace] of the XML element being encoded.
-     */
-    protected abstract fun wrappedElementContentEncoder(name: String, namespace: String): TEncoder
-
-    /**
-     * Encodes an XML element wrapping a serialized element.
-     *
-     * Provided are the [encoder][contentEncoder] responsible for encoding its content, as well as
-     * the [name] and [namespace] of the XML element being encoded.
-     */
-    protected open fun encodeWrappedElement(
-        contentEncoder: TEncoder,
-        name: String,
-        namespace: String
-    ) {}
-
     private fun encodeElement(
         descriptor: SerialDescriptor,
         index: Int,
@@ -221,14 +187,12 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
             val namespace =
                 getElementNamespace(descriptor.getElementXmlNamespace(index)?.uri, namespaces)
 
-            val contentEncoder = wrappedElementContentEncoder(name, namespace)
+            val contentEncoder = beginStructure(name, namespace, emptyList(), namespaces)
             contentEncoder.wrappedElementDescriptor = descriptor
             contentEncoder.wrappedElementIndex = index
             contentEncoder.flattenStructure = isCollection
-
             encodeValue(contentEncoder)
-
-            encodeWrappedElement(contentEncoder, name, namespace)
+            contentEncoder.endStructure(name, namespace)
         } else {
             elementDescriptor = descriptor
             elementIndex = index
@@ -375,10 +339,24 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
         encodeValue(Long.serializer().descriptor, value.toString())
 
     final override fun encodeFloat(value: Float) =
-        encodeValue(Float.serializer().descriptor, value.toString())
+        encodeValue(
+            Float.serializer().descriptor,
+            when (value) {
+                Float.NEGATIVE_INFINITY -> "-INF"
+                Float.POSITIVE_INFINITY -> "INF"
+                else -> value.toString()
+            }
+        )
 
     final override fun encodeDouble(value: Double) =
-        encodeValue(Double.serializer().descriptor, value.toString())
+        encodeValue(
+            Double.serializer().descriptor,
+            when (value) {
+                Double.NEGATIVE_INFINITY -> "-INF"
+                Double.POSITIVE_INFINITY -> "INF"
+                else -> value.toString()
+            }
+        )
 
     final override fun encodeChar(value: Char) =
         encodeValue(Char.serializer().descriptor, value.toString())

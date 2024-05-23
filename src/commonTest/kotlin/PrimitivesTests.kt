@@ -105,3 +105,44 @@ class EnumTest : SerializationTest<Enum>() {
     override val xml: String = "<Enum>V1</Enum>"
     override val element: XmlElement = buildXmlElement("Enum") { addText("V1") }
 }
+
+@Serializable
+data class SpecialPrimitives(
+    val floatNegInf: Float = Float.NEGATIVE_INFINITY,
+    val floatPosInf: Float = Float.POSITIVE_INFINITY,
+    val floatNaN: Float = Float.NaN,
+    val floatNeg0: Float = -0f,
+    val doubleNegInf: Double = Double.NEGATIVE_INFINITY,
+    val doublePosInf: Double = Double.POSITIVE_INFINITY,
+    val doubleNaN: Double = Double.NaN,
+    val doubleNeg0: Double = -0.0,
+)
+
+class SpecialPrimitivesTest : SerializationTest<SpecialPrimitives>() {
+    override val serializer = SpecialPrimitives.serializer()
+    override val value = SpecialPrimitives()
+    override val xml: String =
+        """
+        <SpecialPrimitives>
+            <floatNegInf>-INF</floatNegInf>
+            <floatPosInf>INF</floatPosInf>
+            <floatNaN>NaN</floatNaN>
+            <floatNeg0>-0.0</floatNeg0>
+            <doubleNegInf>-INF</doubleNegInf>
+            <doublePosInf>INF</doublePosInf>
+            <doubleNaN>NaN</doubleNaN>
+            <doubleNeg0>-0.0</doubleNeg0>
+        </SpecialPrimitives>
+        """
+    override val element: XmlElement =
+        buildXmlElement("SpecialPrimitives") {
+            addXmlElement("floatNegInf") { addText("-INF") }
+            addXmlElement("floatPosInf") { addText("INF") }
+            addXmlElement("floatNaN") { addText("NaN") }
+            addXmlElement("floatNeg0") { addText("-0.0") }
+            addXmlElement("doubleNegInf") { addText("-INF") }
+            addXmlElement("doublePosInf") { addText("INF") }
+            addXmlElement("doubleNaN") { addText("NaN") }
+            addXmlElement("doubleNeg0") { addText("-0.0") }
+        }
+}

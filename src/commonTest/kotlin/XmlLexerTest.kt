@@ -1,16 +1,16 @@
 package pt.opensoft.kotlinx.serialization.xml
 
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.AttributeName
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.AttributeValue
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.DocumentEnd
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.ElementEnd
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.ElementStart
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.ElementStartEnd
-import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer.Token.Text
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlLexer
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.AttributeStart
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.AttributeValue
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.DocumentEnd
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.ElementEnd
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.ElementStart
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.ElementStartEnd
+import pt.opensoft.kotlinx.serialization.xml.internal.XmlToken.Text
 
 class XmlLexerTest {
     @Test
@@ -108,7 +108,7 @@ class XmlLexerTest {
         XmlLexer("""<foo attribute="bar"></foo>""")
             .expectNextTokens(
                 ElementStart("foo"),
-                AttributeName("attribute"),
+                AttributeStart("attribute"),
                 AttributeValue("bar"),
                 ElementStartEnd,
                 ElementEnd("foo"),
@@ -121,9 +121,9 @@ class XmlLexerTest {
         XmlLexer("""<foo first="bar" second="baz"></foo>""")
             .expectNextTokens(
                 ElementStart("foo"),
-                AttributeName("first"),
+                AttributeStart("first"),
                 AttributeValue("bar"),
-                AttributeName("second"),
+                AttributeStart("second"),
                 AttributeValue("baz"),
                 ElementStartEnd,
                 ElementEnd("foo"),
@@ -156,7 +156,7 @@ class XmlLexerTest {
         XmlLexer("""<foo attribute="bar"/>""")
             .expectNextTokens(
                 ElementStart("foo"),
-                AttributeName("attribute"),
+                AttributeStart("attribute"),
                 AttributeValue("bar"),
                 ElementEnd(),
                 DocumentEnd,
@@ -168,9 +168,9 @@ class XmlLexerTest {
         XmlLexer("""<foo first="bar" second="baz"/>""")
             .expectNextTokens(
                 ElementStart("foo"),
-                AttributeName("first"),
+                AttributeStart("first"),
                 AttributeValue("bar"),
-                AttributeName("second"),
+                AttributeStart("second"),
                 AttributeValue("baz"),
                 ElementEnd(),
                 DocumentEnd,
@@ -184,7 +184,7 @@ class XmlLexerTest {
                 ElementStart("foo"),
                 ElementStartEnd,
                 ElementStart("bar"),
-                AttributeName("first"),
+                AttributeStart("first"),
                 AttributeValue("baz"),
                 ElementStartEnd,
                 Text("text"),
@@ -210,7 +210,7 @@ class XmlLexerTest {
                 ElementStartEnd,
                 Text("Text Content"),
                 ElementStart("bar"),
-                AttributeName("first"),
+                AttributeStart("first"),
                 AttributeValue("baz"),
                 ElementEnd(),
                 ElementEnd("foo"),
@@ -218,7 +218,7 @@ class XmlLexerTest {
             )
     }
 
-    private fun XmlLexer.expectNextTokens(vararg expected: Token) {
+    private fun XmlLexer.expectNextTokens(vararg expected: XmlToken) {
         expected.forEach { assertEquals(it, readNextToken()) }
     }
 }

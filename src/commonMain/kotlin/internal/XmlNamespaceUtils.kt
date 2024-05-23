@@ -116,13 +116,7 @@ internal fun getAndDeclareElementNamespace(
     declareNamespace: (XmlElement.Attribute) -> Unit
 ): String {
     return namespace?.also {
-        declareNamespaceIfNeeded(
-            namespace,
-            preferredPrefix!!,
-            false,
-            namespaces,
-            declareNamespace
-        )
+        declareNamespaceIfNeeded(namespace, preferredPrefix!!, false, namespaces, declareNamespace)
     } ?: (namespaces[NO_NAMESPACE_PREFIX] ?: error("Empty namespace not in scope"))
 }
 

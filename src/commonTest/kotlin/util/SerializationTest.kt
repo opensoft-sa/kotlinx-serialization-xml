@@ -36,8 +36,8 @@ abstract class SerializationTest<T> {
         assertEquals(element, config.encodeToXmlElement(serializer, value))
     }
 
-//    @Test
-//    fun testDecodeFromXmlElement() {
-//        assertEquals(value, config.decodeFromXmlElement(serializer, element))
-//    }
+    @Test
+    fun testDecodeFromXmlElement() {
+        assertEquals(value, config.decodeFromXmlElement(serializer, element))
+    }
 }

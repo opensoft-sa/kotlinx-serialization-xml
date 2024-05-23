@@ -38,6 +38,36 @@ class PrimitiveAttributesTest : SerializationTest<PrimitiveAttributes>() {
 }
 
 @Serializable
+data class SpecialPrimitiveAttributes(
+    @XmlAttribute val floatNegInf: Float = Float.NEGATIVE_INFINITY,
+    @XmlAttribute val floatPosInf: Float = Float.POSITIVE_INFINITY,
+    @XmlAttribute val floatNaN: Float = Float.NaN,
+    @XmlAttribute val floatNeg0: Float = -0f,
+    @XmlAttribute val doubleNegInf: Double = Double.NEGATIVE_INFINITY,
+    @XmlAttribute val doublePosInf: Double = Double.POSITIVE_INFINITY,
+    @XmlAttribute val doubleNaN: Double = Double.NaN,
+    @XmlAttribute val doubleNeg0: Double = -0.0,
+)
+
+class SpecialPrimitiveAttributesTest : SerializationTest<SpecialPrimitiveAttributes>() {
+    override val serializer = SpecialPrimitiveAttributes.serializer()
+    override val value = SpecialPrimitiveAttributes()
+    override val xml: String =
+        """<SpecialPrimitiveAttributes floatNegInf="-INF" floatPosInf="INF" floatNaN="NaN" floatNeg0="-0.0" doubleNegInf="-INF" doublePosInf="INF" doubleNaN="NaN" doubleNeg0="-0.0" />"""
+    override val element: XmlElement =
+        buildXmlElement("SpecialPrimitiveAttributes") {
+            addAttribute("floatNegInf", "-INF")
+            addAttribute("floatPosInf", "INF")
+            addAttribute("floatNaN", "NaN")
+            addAttribute("floatNeg0", "-0.0")
+            addAttribute("doubleNegInf", "-INF")
+            addAttribute("doublePosInf", "INF")
+            addAttribute("doubleNaN", "NaN")
+            addAttribute("doubleNeg0", "-0.0")
+        }
+}
+
+@Serializable
 data class NamedAttributes(
     @XmlAttribute @XmlName("n") val named: String = "x",
     @XmlAttribute @XmlNamespace("http://example.com", "ex") val namespaced: String = "y",
