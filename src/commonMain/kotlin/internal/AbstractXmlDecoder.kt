@@ -24,17 +24,24 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
     private val configuration
         get() = xml.configuration
 
-    private var elementDescriptor: SerialDescriptor? = null
-    private var elementIndex: Int = -1
-    private var wrappedElementDescriptor: SerialDescriptor? = null
+    private var structureDescriptor: SerialDescriptor? = null
     private var wrappedElementIndex: Int = -1
+    private var elementIndex: Int = -1
     private var flattenStructure: Boolean = false
 
-    protected abstract fun decodeTransformedXmlElement(): XmlElement
+    /** Annotated XML name of the element being currently encoded. */
+    private fun annotatedElementXmlName(): String? =
+        structureDescriptor?.let {
+            if (wrappedElementIndex >= 0) it.getElementXmlWrappedName(wrappedElementIndex)
+            else it.getElementXmlName(elementIndex)
+        }
 
-    final override fun decodeXmlElement(): XmlElement {
-        return decodeTransformedXmlElement()
-    }
+    /** Annotated XML namespace URI of the element being currently encoded. */
+    private fun annotatedElementXmlNamespace(): String? =
+        structureDescriptor?.let {
+            if (wrappedElementIndex >= 0) it.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
+            else it.getElementXmlNamespace(elementIndex)?.uri
+        }
 
     /** Returns the decoder used to decode the content of a flat structure. */
     protected abstract fun flatStructureContentDecoder(defaultNamespace: String): TDecoder
@@ -50,7 +57,8 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
         name: String,
         namespace: String,
         namespaces: Map<String, String>,
-        defaultNamespace: String
+        defaultNamespace: String,
+        isWrapper: Boolean
     ): TDecoder
 
     final override fun beginStructure(descriptor: SerialDescriptor): CompositeDecoder {
@@ -65,24 +73,17 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
 
         if (flattenStructure) {
             val contentDecoder = flatStructureContentDecoder(defaultNamespace)
-            contentDecoder.elementDescriptor = elementDescriptor
+            contentDecoder.structureDescriptor = structureDescriptor
             contentDecoder.elementIndex = elementIndex
-            contentDecoder.wrappedElementDescriptor = wrappedElementDescriptor
             contentDecoder.wrappedElementIndex = wrappedElementIndex
             return contentDecoder
         }
 
-        val name =
-            wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
-                ?: elementDescriptor?.getElementXmlName(elementIndex)
-                ?: descriptor.getXmlName()
+        val name = annotatedElementXmlName() ?: descriptor.getXmlName()
         val namespace =
-            wrappedElementDescriptor?.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
-                ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
-                ?: descriptor.getXmlNamespace()?.uri
-                ?: defaultNamespace
+            annotatedElementXmlNamespace() ?: descriptor.getXmlNamespace()?.uri ?: defaultNamespace
 
-        return beginStructure(name, namespace, namespaces, defaultNamespace)
+        return beginStructure(name, namespace, namespaces, defaultNamespace, false)
     }
 
     /**
@@ -97,31 +98,21 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
             return
         }
 
-        val name =
-            parentDecoder.wrappedElementDescriptor?.getElementXmlWrappedName(
-                parentDecoder.wrappedElementIndex
-            )
-                ?: parentDecoder.elementDescriptor?.getElementXmlName(parentDecoder.elementIndex)
-                ?: descriptor.getXmlName()
+        val name = parentDecoder.annotatedElementXmlName() ?: descriptor.getXmlName()
         val namespace =
-            parentDecoder.wrappedElementDescriptor
-                ?.getElementXmlWrappedNamespace(parentDecoder.wrappedElementIndex)
-                ?.uri
-                ?: parentDecoder.elementDescriptor
-                    ?.getElementXmlNamespace(parentDecoder.elementIndex)
-                    ?.uri
+            parentDecoder.annotatedElementXmlNamespace()
                 ?: descriptor.getXmlNamespace()?.uri
                 ?: defaultNamespace
         endStructure(name, namespace)
     }
 
-//    protected abstract fun decodeXmlElementIndex(descriptor: SerialDescriptor): Int
+    //    protected abstract fun decodeXmlElementIndex(descriptor: SerialDescriptor): Int
 
-//    override fun decodeElementIndex(descriptor: SerialDescriptor): Int {
-//        val index = decodeXmlElementIndex(descriptor)
-//        val kind = descriptor.getElementDescriptor(index).kind
-//        if (kind == StructureKind.LIST || kind == StructureKind.MAP) {}
-//    }
+    //    override fun decodeElementIndex(descriptor: SerialDescriptor): Int {
+    //        val index = decodeXmlElementIndex(descriptor)
+    //        val kind = descriptor.getElementDescriptor(index).kind
+    //        if (kind == StructureKind.LIST || kind == StructureKind.MAP) {}
+    //    }
 
     private fun <T> decodeElement(
         descriptor: SerialDescriptor,
@@ -137,8 +128,9 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
 
         // TODO: Support decoding of polymorphic objects via type attribute
 
-        val elementKind =
-            descriptor.getElementDescriptor(index).actualDescriptor(serializersModule).kind
+        val elemDescriptor =
+            descriptor.getElementDescriptor(index).actualDescriptor(serializersModule)
+        val elementKind = elemDescriptor.kind
         val isCollection = elementKind == StructureKind.LIST || elementKind == StructureKind.MAP
 
         // Whether element should be wrapped
@@ -146,15 +138,15 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
             val name = descriptor.getElementXmlName(index)
             val namespace = descriptor.getElementXmlNamespace(index)?.uri ?: defaultNamespace
 
-            val contentDecoder = beginStructure(name, namespace, namespaces, defaultNamespace)
-            contentDecoder.wrappedElementDescriptor = descriptor
+            val contentDecoder = beginStructure(name, namespace, namespaces, defaultNamespace, true)
+            contentDecoder.structureDescriptor = descriptor
             contentDecoder.wrappedElementIndex = index
             contentDecoder.flattenStructure = isCollection
             val value = decodeValue(contentDecoder)
             contentDecoder.endStructure(name, namespace)
             return value
         } else {
-            elementDescriptor = descriptor
+            structureDescriptor = descriptor
             elementIndex = index
             flattenStructure = isCollection
             return decodeValue(this)
@@ -229,28 +221,22 @@ internal abstract class AbstractXmlDecoder<TDecoder : AbstractXmlDecoder<TDecode
 
     private fun decodeValue(descriptor: SerialDescriptor): String {
         // Value is being decoded from the attribute of an XML element
-        if (elementDescriptor?.isElementXmlAttribute(elementIndex) == true) {
-            val name = elementDescriptor!!.getElementXmlName(elementIndex)
+        if (elementIndex >= 0 && structureDescriptor!!.isElementXmlAttribute(elementIndex)) {
+            val name = structureDescriptor!!.getElementXmlName(elementIndex)
             val namespace =
-                elementDescriptor!!.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
+                structureDescriptor!!.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
             return decodeAttribute(name, namespace)
         }
 
         // Value is being decoded from the text of an XML element
-        if (elementDescriptor?.isElementXmlText(elementIndex) == true) {
+        if (elementIndex >= 0 && structureDescriptor!!.isElementXmlText(elementIndex)) {
             return decodeText()
         }
 
         // Value is being decoded from an XML element
-        val name =
-            wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
-                ?: elementDescriptor?.getElementXmlName(elementIndex)
-                ?: descriptor.getXmlName()
+        val name = annotatedElementXmlName() ?: descriptor.getXmlName()
         val namespace =
-            wrappedElementDescriptor?.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
-                ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
-                ?: descriptor.getXmlNamespace()?.uri
-                ?: defaultNamespace
+            annotatedElementXmlNamespace() ?: descriptor.getXmlNamespace()?.uri ?: defaultNamespace
         return decodeValue(name, namespace)
     }
 

@@ -22,11 +22,32 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
     private val configuration
         get() = xml.configuration
 
-    private var elementDescriptor: SerialDescriptor? = null
-    private var elementIndex: Int = -1
-    private var wrappedElementDescriptor: SerialDescriptor? = null
+    private var structureDescriptor: SerialDescriptor? = null
     private var wrappedElementIndex: Int = -1
+    private var elementIndex: Int = -1
     private var flattenStructure: Boolean = false
+
+    /** Annotated XML name of the element being currently encoded. */
+    private fun annotatedElementXmlName(): String? =
+        structureDescriptor?.let {
+            if (wrappedElementIndex >= 0) it.getElementXmlWrappedName(wrappedElementIndex)
+            else it.getElementXmlName(elementIndex)
+        }
+
+    /** Annotated XML namespace URI of the element being currently encoded. */
+    private fun annotatedElementXmlNamespace(): String? =
+        structureDescriptor?.let {
+            if (wrappedElementIndex >= 0) it.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
+            else it.getElementXmlNamespace(elementIndex)?.uri
+        }
+
+    /** Annotated XML namespace's preferred prefix of the element being currently encoded. */
+    private fun annotatedElementXmlPreferredNamespacePrefix(): String? =
+        structureDescriptor?.let {
+            if (wrappedElementIndex >= 0)
+                it.getElementXmlWrappedNamespace(wrappedElementIndex)?.preferredPrefix
+            else it.getElementXmlNamespace(elementIndex)?.preferredPrefix
+        }
 
     final override fun shouldEncodeElementDefault(
         descriptor: SerialDescriptor,
@@ -42,19 +63,12 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
 
     final override fun encodeXmlElement(element: XmlElement) {
         val transformedElement =
-            if (wrappedElementDescriptor == null && elementDescriptor == null) element
+            if (structureDescriptor == null) element
             else {
-                val name =
-                    wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
-                        ?: elementDescriptor?.getElementXmlName(elementIndex)
-                        ?: element.name
+                val name = annotatedElementXmlName() ?: element.name
                 val namespace =
                     getElementNamespace(
-                        wrappedElementDescriptor
-                            ?.getElementXmlWrappedNamespace(wrappedElementIndex)
-                            ?.uri
-                            ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
-                            ?: element.namespace,
+                        annotatedElementXmlNamespace() ?: element.namespace,
                         namespaces
                     )
                 element.copy(name = name, namespace = namespace)
@@ -86,9 +100,8 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
 
         if (flattenStructure) {
             val contentEncoder = flatStructureEncoder()
-            contentEncoder.elementDescriptor = elementDescriptor
+            contentEncoder.structureDescriptor = structureDescriptor
             contentEncoder.elementIndex = elementIndex
-            contentEncoder.wrappedElementDescriptor = wrappedElementDescriptor
             contentEncoder.wrappedElementIndex = wrappedElementIndex
             return contentEncoder
         }
@@ -105,21 +118,13 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
         )
 
         // Name of the element
-        val name =
-            wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
-                ?: elementDescriptor?.getElementXmlName(elementIndex)
-                ?: descriptor.getXmlName()
+        val name = annotatedElementXmlName() ?: descriptor.getXmlName()
 
         // Obtain namespace of the element and declare it if not already in scope
         val namespace =
             getAndDeclareElementNamespace(
-                wrappedElementDescriptor?.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
-                    ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
-                    ?: descriptor.getXmlNamespace()?.uri,
-                wrappedElementDescriptor
-                    ?.getElementXmlWrappedNamespace(wrappedElementIndex)
-                    ?.preferredPrefix
-                    ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.preferredPrefix
+                annotatedElementXmlNamespace() ?: descriptor.getXmlNamespace()?.uri,
+                annotatedElementXmlPreferredNamespacePrefix()
                     ?: descriptor.getXmlNamespace()?.preferredPrefix,
                 namespaces,
                 declareNamespace
@@ -143,21 +148,10 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
             return
         }
 
-        val name =
-            parentEncoder.wrappedElementDescriptor?.getElementXmlWrappedName(
-                parentEncoder.wrappedElementIndex
-            )
-                ?: parentEncoder.elementDescriptor?.getElementXmlName(parentEncoder.elementIndex)
-                ?: descriptor.getXmlName()
+        val name = parentEncoder.annotatedElementXmlName() ?: descriptor.getXmlName()
         val namespace =
             getElementNamespace(
-                parentEncoder.wrappedElementDescriptor
-                    ?.getElementXmlWrappedNamespace(parentEncoder.wrappedElementIndex)
-                    ?.uri
-                    ?: parentEncoder.elementDescriptor
-                        ?.getElementXmlNamespace(parentEncoder.elementIndex)
-                        ?.uri
-                    ?: descriptor.getXmlNamespace()?.uri,
+                parentEncoder.annotatedElementXmlNamespace() ?: descriptor.getXmlNamespace()?.uri,
                 namespaces
             )
         endStructure(name, namespace)
@@ -188,13 +182,13 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
                 getElementNamespace(descriptor.getElementXmlNamespace(index)?.uri, namespaces)
 
             val contentEncoder = beginStructure(name, namespace, emptyList(), namespaces)
-            contentEncoder.wrappedElementDescriptor = descriptor
+            contentEncoder.structureDescriptor = descriptor
             contentEncoder.wrappedElementIndex = index
             contentEncoder.flattenStructure = isCollection
             encodeValue(contentEncoder)
             contentEncoder.endStructure(name, namespace)
         } else {
-            elementDescriptor = descriptor
+            structureDescriptor = descriptor
             elementIndex = index
             flattenStructure = isCollection
             encodeValue(this)
@@ -284,30 +278,25 @@ internal abstract class AbstractXmlEncoder<TEncoder : AbstractXmlEncoder<TEncode
 
     private fun encodeValue(descriptor: SerialDescriptor, value: String) {
         // Value is being encoded as the attribute of an XML element
-        if (elementDescriptor?.isElementXmlAttribute(elementIndex) == true) {
-            val name = elementDescriptor!!.getElementXmlName(elementIndex)
+        if (elementIndex >= 0 && structureDescriptor!!.isElementXmlAttribute(elementIndex)) {
+            val name = structureDescriptor!!.getElementXmlName(elementIndex)
             val namespace =
-                elementDescriptor!!.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
+                structureDescriptor!!.getElementXmlNamespace(elementIndex)?.uri ?: NO_NAMESPACE_URI
             encodeAttribute(name, namespace, value)
             return
         }
 
         // Value is being encoded as the text of an XML element
-        if (elementDescriptor?.isElementXmlText(elementIndex) == true) {
+        if (elementIndex >= 0 && structureDescriptor!!.isElementXmlText(elementIndex)) {
             encodeText(value)
             return
         }
 
         // Value is being encoded as an XML element
-        val name =
-            wrappedElementDescriptor?.getElementXmlWrappedName(wrappedElementIndex)
-                ?: elementDescriptor?.getElementXmlName(elementIndex)
-                ?: descriptor.getXmlName()
+        val name = annotatedElementXmlName() ?: descriptor.getXmlName()
         val namespace =
             getElementNamespace(
-                wrappedElementDescriptor?.getElementXmlWrappedNamespace(wrappedElementIndex)?.uri
-                    ?: elementDescriptor?.getElementXmlNamespace(elementIndex)?.uri
-                    ?: descriptor.getXmlNamespace()?.uri,
+                annotatedElementXmlNamespace() ?: descriptor.getXmlNamespace()?.uri,
                 namespaces
             )
         encodeValue(name, namespace, value)

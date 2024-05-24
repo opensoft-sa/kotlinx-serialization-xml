@@ -14,7 +14,7 @@ internal class StreamingXmlDecoder(
     defaultNamespace: String = NO_NAMESPACE_URI,
     parentDecoder: StreamingXmlDecoder? = null
 ) : AbstractXmlDecoder<StreamingXmlDecoder>(xml, namespaces, defaultNamespace, parentDecoder) {
-    override fun decodeTransformedXmlElement(): XmlElement = lexer.decodeXmlElement(namespaces)
+    override fun decodeXmlElement(): XmlElement = lexer.decodeXmlElement(namespaces)
 
     override fun flatStructureContentDecoder(defaultNamespace: String): StreamingXmlDecoder =
         StreamingXmlDecoder(xml, lexer, namespaces, defaultNamespace, this)
@@ -23,7 +23,8 @@ internal class StreamingXmlDecoder(
         name: String,
         namespace: String,
         namespaces: Map<String, String>,
-        defaultNamespace: String
+        defaultNamespace: String,
+        isWrapper: Boolean
     ): StreamingXmlDecoder {
         TODO("Not yet implemented")
     }

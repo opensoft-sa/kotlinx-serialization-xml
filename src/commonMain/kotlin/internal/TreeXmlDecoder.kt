@@ -22,7 +22,7 @@ internal class TreeXmlDecoder(
     /** Whether the [element]'s text content has been decoded. */
     private var decodedText = false
 
-    override fun decodeTransformedXmlElement(): XmlElement = element
+    override fun decodeXmlElement(): XmlElement = element
 
     override fun flatStructureContentDecoder(defaultNamespace: String): TreeXmlDecoder =
         TreeXmlDecoder(xml, element, namespaces, defaultNamespace, this)
@@ -31,11 +31,12 @@ internal class TreeXmlDecoder(
         name: String,
         namespace: String,
         namespaces: Map<String, String>,
-        defaultNamespace: String
+        defaultNamespace: String,
+        isWrapper: Boolean
     ): TreeXmlDecoder {
-        println("beginStructure $name $namespace")
-        val element =
+        var element =
             if (contentIndex >= 0) element.content[contentIndex] as XmlElement else element
+        println("beginStructure $name $isWrapper")
         val elementNamespaces = element.collectNamespaces(namespaces)
         if (element.name != name || element.namespace != namespace) {
             fail(
@@ -43,6 +44,26 @@ internal class TreeXmlDecoder(
                     "but found element with name '${element.name}' and namespace " +
                     "'${element.namespace}'"
             )
+        }
+        if (isWrapper) {
+            for (attribute in element.attributes) {
+                if (
+                    (attribute.name != XMLNS_NAMESPACE_PREFIX ||
+                        attribute.namespace != NO_NAMESPACE_URI) &&
+                        attribute.namespace != XMLNS_NAMESPACE_URI
+                ) {
+                    fail(
+                        "Unknown attribute with name '${attribute.name}' and namespace " +
+                            "'${attribute.namespace}'"
+                    )
+                }
+            }
+            element =
+                element.content.single() as? XmlElement
+                    ?: fail(
+                        "Expected element with name '$name' and namespace '$namespace' to " +
+                            "contain a single XML element as content"
+                    )
         }
         return TreeXmlDecoder(xml, element, elementNamespaces, defaultNamespace, this)
     }
@@ -110,6 +131,7 @@ internal class TreeXmlDecoder(
     override fun decodeText(): String = element.text
 
     override fun decodeValue(name: String, namespace: String): String {
+        println("decodeValue $name")
         val element =
             if (contentIndex >= 0) element.content[contentIndex] as XmlElement else element
         if (element.name != name || element.namespace != namespace) {
